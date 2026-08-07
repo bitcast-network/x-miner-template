@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bitcast X Miner</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main>
+      <h1>Bitcast X Miner</h1>
+      <p>This page commits your draft before you post, then submits the published tweet to validators.</p>
+
+      <section>
+        <h2>Miner status</h2>
+        <div id="miner-status">Checking…</div>
+      </section>
+
+      <section>
+        <h2>1. Select a campaign</h2>
+        <label for="campaign">Campaign</label>
+        <select id="campaign"><option>Loading campaigns…</option></select>
+        <pre id="campaign-details"></pre>
+      </section>
+
+      <section>
+        <h2>2. Verify your draft before posting</h2>
+        <form id="claim-form">
+          <label for="creator-x-id">Your numeric X user ID</label>
+          <input id="creator-x-id" inputmode="numeric" pattern="[0-9]+" required>
+          <label for="draft">Exact tweet draft</label>
+          <textarea id="draft" maxlength="20000" required></textarea>
+          <button type="submit">Commit draft</button>
+        </form>
+        <p id="claim-result" class="result"></p>
+      </section>
+
+      <section>
+        <h2>3. Post on X, then submit</h2>
+        <p>Only post after step 2 says <code>safe_to_post</code>. Do not change the committed draft.</p>
+        <form id="submission-form">
+          <label for="tweet">Tweet URL or numeric tweet ID</label>
+          <input id="tweet" required>
+          <button type="submit">Submit tweet</button>
+        </form>
+        <p id="submission-result" class="result"></p>
+      </section>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

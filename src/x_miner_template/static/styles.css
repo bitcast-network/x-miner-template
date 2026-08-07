@@ -1,0 +1,12 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; }
+main { max-width: 48rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+section { border: 1px solid #8886; border-radius: .5rem; margin: 1rem 0; padding: 1rem; }
+label { display: block; font-weight: 600; margin-top: .75rem; }
+input, select, textarea, button { box-sizing: border-box; font: inherit; padding: .65rem; width: 100%; }
+textarea { min-height: 8rem; resize: vertical; }
+button { cursor: pointer; font-weight: 700; margin-top: 1rem; }
+pre { overflow: auto; white-space: pre-wrap; }
+.result { min-height: 1.5rem; }
+.error { color: #d33; }
+.success { color: #17823b; }
