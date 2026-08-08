@@ -1,8 +1,8 @@
 """Offline HTTP tests for the complete creator-facing miner flow."""
 
 from pathlib import Path
-from typing import Any
 
+from bitcast_x.campaigns import CampaignRecord
 from bitcast_x.miner import BatchPolicy, FinalizedCommitment, MinerEngine, MinerSdk, MinerStore
 from bitcast_x.miner.engine import CapacityBudget
 from bitcast_x.protocol import CommitmentEnvelope, CommitmentPosition
@@ -32,10 +32,27 @@ class Submitter:
 
 
 class Feed:
-    """Minimal campaign source unused by flow tests."""
+    """Minimal campaign source for creator-facing HTTP tests."""
 
-    async def fetch(self) -> Any:
-        raise AssertionError("not used")
+    async def fetch_campaigns(self) -> tuple[CampaignRecord, ...]:
+        return (
+            CampaignRecord.model_validate(
+                {
+                    "access": {
+                        "campaign_id": "campaign",
+                        "mechanism_id": 1,
+                        "mining_protocol": "preclaim_v2",
+                        "scoring_close_block": 100,
+                    },
+                    "title": "Campaign",
+                    "brief": "Write an original post.",
+                    "ecosystem_id": "tao",
+                    "opens_at": "2026-08-01T00:00:00Z",
+                    "closes_at": "2026-08-10T00:00:00Z",
+                    "reward_pool_usd": "1000",
+                }
+            ),
+        )
 
     async def close(self) -> None:
         return None
@@ -61,6 +78,13 @@ def client(tmp_path: Path) -> TestClient:
 
 async def _authorized() -> bool:
     return True
+
+
+def test_campaign_listing_uses_campaign_metadata_source(tmp_path: Path) -> None:
+    response = client(tmp_path).get("/api/campaigns")
+
+    assert response.status_code == 200
+    assert response.json()[0]["access"]["campaign_id"] == "campaign"
 
 
 def test_claim_then_submission_are_finalized(tmp_path: Path) -> None:

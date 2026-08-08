@@ -4,14 +4,14 @@ import asyncio
 from dataclasses import dataclass
 from typing import Protocol
 
-from bitcast_x.campaigns import CampaignFeedClient
+from bitcast_x.campaigns import CampaignRecord
 from bitcast_x.miner.engine import MinerSdk
 
 
 class CampaignSource(Protocol):
     """Campaign feed operations required by the web application."""
 
-    async def fetch(self) -> object: ...
+    async def fetch_campaigns(self) -> tuple[CampaignRecord, ...]: ...
 
     async def close(self) -> None: ...
 
@@ -21,14 +21,14 @@ class MinerService:
     """Small use-case layer with explicit commitment completion semantics."""
 
     sdk: MinerSdk
-    campaign_source: CampaignFeedClient
+    campaign_source: CampaignSource
     commit_timeout_seconds: float
 
     async def campaigns(self) -> list[dict[str, object]]:
         """Return open-campaign fields needed to complete the miner flow."""
 
-        feed = await self.campaign_source.fetch()
-        return [campaign.model_dump(mode="json") for campaign in feed.campaigns]
+        campaigns = await self.campaign_source.fetch_campaigns()
+        return [campaign.model_dump(mode="json") for campaign in campaigns]
 
     async def create_claim(self, campaign_id: str, creator_x_id: str, draft: str) -> dict[str, str]:
         """Create and finalize a claim before telling a creator it is safe to post."""
