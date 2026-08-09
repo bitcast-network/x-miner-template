@@ -88,6 +88,10 @@ def create_app(service_provider: Callable[[], MinerService], protocol_app: FastA
     async def submit_tweet(body: SubmissionRequest, current: Service) -> dict[str, str]:
         return await current.submit_tweet(body.campaign_id, body.tweet_id, body.claim_id)
 
+    @app.get("/api/submissions")
+    async def submissions(current: Service) -> list[dict[str, object]]:
+        return current.submissions()
+
     @app.get("/api/submissions/{submission_id}")
     async def submission_status(submission_id: str, current: Service) -> dict[str, str]:
         result = current.submission_status(submission_id)

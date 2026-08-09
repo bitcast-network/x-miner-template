@@ -17,6 +17,7 @@ from fastapi import FastAPI
 
 from x_miner_template.app import create_app
 from x_miner_template.config import WebSettings
+from x_miner_template.results import MinerResultsClient
 from x_miner_template.service import MinerService
 
 LOGGER = logging.getLogger(__name__)
@@ -71,8 +72,14 @@ def build_app(protocol_settings: Settings, web_settings: WebSettings) -> FastAPI
             sdk=sdk,
             campaign_source=campaign_source,
             commit_timeout_seconds=web_settings.force_commit_timeout_seconds,
+            results_client=MinerResultsClient(
+                web_settings.results_api_url,
+                wallet.hotkey,
+                timeout=protocol_settings.request_timeout_seconds,
+            ),
         )
         commit_task: asyncio.Task[None] | None = None
+        results_task: asyncio.Task[None] | None = None
 
         async def commit_loop() -> None:
             while True:
@@ -81,6 +88,14 @@ def build_app(protocol_settings: Settings, web_settings: WebSettings) -> FastAPI
                 except Exception:
                     LOGGER.exception("queued commitment failed; durable state retained")
                 await asyncio.sleep(min(0.5, protocol_settings.batch_max_age_seconds / 2))
+
+        async def results_loop() -> None:
+            while True:
+                try:
+                    await get_service().sync_submission_results()
+                except Exception:
+                    LOGGER.exception("submission result poll failed; local state retained")
+                await asyncio.sleep(web_settings.results_poll_seconds)
 
         try:
             try:
@@ -94,6 +109,7 @@ def build_app(protocol_settings: Settings, web_settings: WebSettings) -> FastAPI
                     "endpoint advertisement failed; continuing with existing on-chain axon if any"
                 )
             commit_task = asyncio.create_task(commit_loop())
+            results_task = asyncio.create_task(results_loop())
             runtime["ready"] = True
             LOGGER.info("miner ready hotkey=%s", sdk.engine.miner_hotkey)
             yield
@@ -103,6 +119,13 @@ def build_app(protocol_settings: Settings, web_settings: WebSettings) -> FastAPI
                 commit_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await commit_task
+            if results_task is not None:
+                results_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await results_task
+            service = runtime.get("service")
+            if isinstance(service, MinerService) and service.results_client is not None:
+                await service.results_client.close()
             await campaign_source.close()
             await chain.close()
 

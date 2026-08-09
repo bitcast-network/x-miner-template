@@ -26,3 +26,9 @@ details[open] summary { margin-bottom: .5rem; }
 .badge { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .85em; font-weight: 700; }
 .badge.yes { background: #17823b26; color: #17823b; }
 .badge.no { background: #d3332226; color: #d33; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: .65rem; border-bottom: 1px solid #d7dce2; text-align: left; }
+.table-wrap { overflow-x: auto; }
+tr[data-status="verification_pending"] td:last-child { color: #805d00; }
+tr[data-status="attributed"] td:last-child { color: #08752d; }
+tr[data-status="rejected"] td:last-child { color: #a51d2d; }

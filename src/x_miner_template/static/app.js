@@ -4,6 +4,7 @@ const campaignDetails = document.querySelector("#campaign-details");
 const claimResult = document.querySelector("#claim-result");
 const resumeClaimResult = document.querySelector("#resume-claim-result");
 const submissionResult = document.querySelector("#submission-result");
+const verificationRows = document.querySelector("#verification-rows");
 let campaigns = [];
 let operation = JSON.parse(localStorage.getItem("bitcastMinerOperation") || "null");
 
@@ -104,6 +105,44 @@ function renderMinerStatus(health, qualification) {
   }
 }
 
+function verificationStatus(status) {
+  if (status === "verification_pending") return "Pending validator verification";
+  if (status === "attributed") return "Attributed";
+  if (status === "rejected") return "Rejected";
+  if (status === "tweet_received") return "Waiting for chain commitment";
+  return status;
+}
+
+function renderVerifications(submissions) {
+  if (!submissions.length) {
+    verificationRows.innerHTML = '<tr><td colspan="4">No tweet submissions yet.</td></tr>';
+    return;
+  }
+  verificationRows.replaceChildren(...submissions.map((submission) => {
+    const row = document.createElement("tr");
+    const tweet = document.createElement("a");
+    tweet.href = `https://x.com/i/status/${submission.tweet_id}`;
+    tweet.target = "_blank";
+    tweet.rel = "noopener noreferrer";
+    tweet.textContent = submission.tweet_id;
+    const values = [tweet, submission.campaign_id,
+      new Date(Number(submission.created_ns) / 1e6).toLocaleString(),
+      verificationStatus(submission.status)];
+    for (const value of values) {
+      const cell = document.createElement("td");
+      if (value instanceof Node) cell.appendChild(value);
+      else cell.textContent = value;
+      row.appendChild(cell);
+    }
+    row.dataset.status = submission.status;
+    return row;
+  }));
+}
+
+async function refreshVerifications() {
+  renderVerifications(await request("/api/submissions"));
+}
+
 function showMinerStatusError(message) {
   const dl = document.querySelector("#miner-status");
   dl.replaceChildren();
@@ -116,8 +155,13 @@ function selectedCampaign() {
 
 function renderCampaign() {
   const campaign = selectedCampaign();
+  const stats = campaign?.stats;
   campaignDetails.textContent = campaign
     ? `${campaign.display}\nPools: ${campaign.pools.join(", ")}\nReward pool: $${campaign.reward_pool_usd}`
+      + (stats
+        ? `\nMatched tweets: ${stats.matched_tweets}\nViews: ${stats.total_views.toLocaleString()}`
+          + `\nEngagements: ${stats.total_engagements.toLocaleString()} (${stats.engagement_rate}%)`
+        : "")
     : "";
 }
 
@@ -126,6 +170,7 @@ async function load() {
     const [health, qualification] = await Promise.all([request("/health"), request("/api/qualification")]);
     renderMinerStatus(health, qualification);
     campaigns = await request("/api/campaigns");
+    await refreshVerifications();
     const buildCampaignOptions = () => campaigns.map((item) => {
       const option = document.createElement("option");
       option.value = item.access.campaign_id;
@@ -224,8 +269,10 @@ document.querySelector("#submission-form").addEventListener("submit", async (eve
         ? `${message}. Validators will now fetch and verify it.`
         : message,
     );
+    await refreshVerifications();
   } catch (error) { show(submissionResult, error.message, false); }
 });
 
 load();
 setInterval(() => refreshOperation().catch(() => {}), 5000);
+setInterval(() => refreshVerifications().catch(() => {}), 5000);

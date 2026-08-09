@@ -159,7 +159,7 @@ wheels = [
 [[package]]
 name = "bitcast-x"
 version = "0.1.0"
-source = { git = "https://github.com/bitcast-network/bitcast-x-v3.git?rev=850b7285fb77ce0db40c61fac509519a86211aec#850b7285fb77ce0db40c61fac509519a86211aec" }
+source = { git = "https://github.com/bitcast-network/bitcast-x-v3.git?rev=9914ea7528d2d02bb40a1da48540a41f4e47eb6c#9914ea7528d2d02bb40a1da48540a41f4e47eb6c" }
 dependencies = [
     { name = "bittensor" },
     { name = "diskcache" },
@@ -1286,6 +1286,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bitcast-x" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "uvicorn" },
@@ -1302,8 +1303,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bitcast-x", git = "https://github.com/bitcast-network/bitcast-x-v3.git?rev=850b7285fb77ce0db40c61fac509519a86211aec" },
+    { name = "bitcast-x", git = "https://github.com/bitcast-network/bitcast-x-v3.git?rev=9914ea7528d2d02bb40a1da48540a41f4e47eb6c" },
     { name = "fastapi", specifier = "==0.141.1" },
+    { name = "httpx", specifier = "==0.28.1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = "==0.28.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.3.0" },
     { name = "pydantic", specifier = "==2.13.4" },
