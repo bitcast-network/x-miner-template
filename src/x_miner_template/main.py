@@ -9,6 +9,7 @@ from typing import Any
 import uvicorn
 from bitcast_x.campaigns import CampaignFeedClient
 from bitcast_x.config import Settings
+from bitcast_x.errors import ChainOperationError
 from bitcast_x.logging import configure_logging
 from bitcast_x.miner.service import build_sdk, load_wallet
 from bitcast_x.transport import create_miner_app
@@ -82,11 +83,16 @@ def build_app(protocol_settings: Settings, web_settings: WebSettings) -> FastAPI
                 await asyncio.sleep(min(0.5, protocol_settings.batch_max_age_seconds / 2))
 
         try:
-            await chain.advertise_endpoint(
-                wallet,
-                ip=protocol_settings.public_ip,
-                port=protocol_settings.port,
-            )
+            try:
+                await chain.advertise_endpoint(
+                    wallet,
+                    ip=protocol_settings.public_ip,
+                    port=protocol_settings.port,
+                )
+            except ChainOperationError:
+                LOGGER.exception(
+                    "endpoint advertisement failed; continuing with existing on-chain axon if any"
+                )
             commit_task = asyncio.create_task(commit_loop())
             runtime["ready"] = True
             LOGGER.info("miner ready hotkey=%s", sdk.engine.miner_hotkey)

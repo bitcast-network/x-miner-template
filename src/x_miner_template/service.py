@@ -1,10 +1,13 @@
 """Application service joining campaign discovery to the Bitcast miner SDK."""
 
 import asyncio
+import json
+import sqlite3
 from dataclasses import dataclass
 from typing import Protocol
 
 from bitcast_x.campaigns import CampaignRecord
+from bitcast_x.errors import ProtocolError
 from bitcast_x.miner.engine import MinerSdk
 
 
@@ -38,10 +41,7 @@ class MinerService:
             creator_x_id=creator_x_id,
             draft=draft,
         )
-        await asyncio.wait_for(
-            self.sdk.engine.commit_ready(force=True),
-            timeout=self.commit_timeout_seconds,
-        )
+        await self._await_commit()
         status = self.sdk.claim_status(claim_id)
         return {"claim_id": claim_id, "status": status.value if status else "unknown"}
 
@@ -50,26 +50,49 @@ class MinerService:
     ) -> dict[str, str]:
         """Commit a published tweet mapping for validator retrieval and verification."""
 
+        if claim_id is not None:
+            expected = self._claim_campaign_id(claim_id)
+            if expected is None:
+                raise ProtocolError("submission claim_id does not belong to this miner")
+            if expected != campaign_id:
+                raise ProtocolError(
+                    f"campaign_id {campaign_id!r} does not match claim campaign {expected!r}"
+                )
+
         submission_id = self.sdk.submit_tweet(
             campaign_id=campaign_id,
             tweet_id=tweet_id,
             claim_id=claim_id,
         )
-        await asyncio.wait_for(
-            self.sdk.engine.commit_ready(force=True),
-            timeout=self.commit_timeout_seconds,
-        )
+        await self._await_commit()
         status = self.sdk.submission_status(submission_id)
         return {
             "submission_id": submission_id,
             "status": status.value if status else "unknown",
         }
 
+    async def _await_commit(self) -> None:
+        """Wait briefly for finalization; durable work continues in the background on timeout."""
+
+        try:
+            await asyncio.wait_for(
+                self.sdk.engine.commit_ready(force=True),
+                timeout=self.commit_timeout_seconds,
+            )
+        except TimeoutError:
+            return
+
     def claim_status(self, claim_id: str) -> dict[str, str]:
         """Read one durable claim status."""
 
         status = self.sdk.claim_status(claim_id)
-        return {"claim_id": claim_id, "status": status.value if status else "not_found"}
+        if status is None:
+            return {"claim_id": claim_id, "status": "not_found"}
+        result = {"claim_id": claim_id, "status": status.value}
+        campaign_id = self._claim_campaign_id(claim_id)
+        if campaign_id is not None:
+            result["campaign_id"] = campaign_id
+        return result
 
     def submission_status(self, submission_id: str) -> dict[str, str]:
         """Read one durable submission status."""
@@ -79,6 +102,20 @@ class MinerService:
             "submission_id": submission_id,
             "status": status.value if status else "not_found",
         }
+
+    def _claim_campaign_id(self, claim_id: str) -> str | None:
+        """Read the campaign bound to a durable claim event."""
+
+        with sqlite3.connect(self.sdk.engine.store.path) as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM events WHERE event_id = ? AND kind = 'claim'",
+                (claim_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row[0])
+        campaign_id = payload.get("campaign_id")
+        return campaign_id if isinstance(campaign_id, str) else None
 
     async def qualification(self) -> dict[str, object]:
         """Read current on-chain miner qualification."""

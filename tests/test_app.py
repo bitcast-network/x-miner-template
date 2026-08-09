@@ -1,5 +1,6 @@
 """Offline HTTP tests for the complete creator-facing miner flow."""
 
+import asyncio
 from pathlib import Path
 
 from bitcast_x.campaigns import CampaignRecord
@@ -31,6 +32,14 @@ class Submitter:
         )
 
 
+class SlowSubmitter(Submitter):
+    """Chain adapter that exceeds the UI force-commit timeout."""
+
+    async def submit(self, envelope: CommitmentEnvelope) -> FinalizedCommitment:
+        await asyncio.sleep(1)
+        return await super().submit(envelope)
+
+
 class Feed:
     """Minimal campaign source for creator-facing HTTP tests."""
 
@@ -58,16 +67,16 @@ class Feed:
         return None
 
 
-def client(tmp_path: Path) -> TestClient:
+def client(tmp_path: Path, *, submitter: Submitter | None = None, timeout: float = 5) -> TestClient:
     """Create an app using real durable miner state and a fake chain."""
 
     engine = MinerEngine(
         miner_hotkey=MINER,
         store=MinerStore(tmp_path / "miner.sqlite3"),
-        submitter=Submitter(),
+        submitter=submitter or Submitter(),
         policy=BatchPolicy(max_age_seconds=5),
     )
-    service = MinerService(MinerSdk(engine), Feed(), 5)  # type: ignore[arg-type]
+    service = MinerService(MinerSdk(engine), Feed(), timeout)  # type: ignore[arg-type]
     protocol = create_miner_app(
         miner_hotkey=MINER,
         provider=engine.batch_page,
@@ -106,6 +115,37 @@ def test_claim_then_submission_are_finalized(tmp_path: Path) -> None:
     )
     assert submission.status_code == 200
     assert submission.json()["status"] == "verification_pending"
+
+
+def test_claim_timeout_returns_waiting_status(tmp_path: Path) -> None:
+    web = client(tmp_path, submitter=SlowSubmitter(), timeout=0.05)
+    claim = web.post(
+        "/api/claims",
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
+    )
+    assert claim.status_code == 200
+    body = claim.json()
+    assert body["claim_id"]
+    assert body["status"] == "waiting_for_commitment"
+
+
+def test_submission_rejects_campaign_mismatch(tmp_path: Path) -> None:
+    web = client(tmp_path)
+    claim = web.post(
+        "/api/claims",
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
+    ).json()
+
+    response = web.post(
+        "/api/submissions",
+        json={
+            "campaign_id": "other-campaign",
+            "tweet_id": "999",
+            "claim_id": claim["claim_id"],
+        },
+    )
+    assert response.status_code == 400
+    assert "does not match claim campaign" in response.json()["detail"]
 
 
 def test_rejects_non_numeric_x_identifiers(tmp_path: Path) -> None:
