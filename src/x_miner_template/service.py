@@ -4,11 +4,14 @@ import asyncio
 import json
 import sqlite3
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from bitcast_x.campaigns import CampaignRecord
 from bitcast_x.errors import ProtocolError
 from bitcast_x.miner.engine import MinerSdk
+from bitcast_x.miner.store import EventStatus
+
+from x_miner_template.results import MinerResultsClient
 
 
 class CampaignSource(Protocol):
@@ -26,10 +29,13 @@ class MinerService:
     sdk: MinerSdk
     campaign_source: CampaignSource
     commit_timeout_seconds: float
+    results_client: MinerResultsClient | None = None
 
     async def campaigns(self) -> list[dict[str, object]]:
         """Return open-campaign fields needed to complete the miner flow."""
 
+        if self.results_client is not None:
+            return list(await self.results_client.campaigns())
         campaigns = await self.campaign_source.fetch_campaigns()
         return [campaign.model_dump(mode="json") for campaign in campaigns]
 
@@ -102,6 +108,27 @@ class MinerService:
             "submission_id": submission_id,
             "status": status.value if status else "not_found",
         }
+
+    def submissions(self) -> list[dict[str, object]]:
+        """Return durable submissions, including remotely finalized statuses."""
+
+        return cast(list[dict[str, object]], self.sdk.submissions())
+
+    async def sync_submission_results(self) -> None:
+        """Poll central attribution results for every locally pending submission."""
+
+        if self.results_client is None:
+            return
+        for submission in self.sdk.submissions():
+            if submission["status"] != EventStatus.VERIFICATION_PENDING.value:
+                continue
+            submission_id = str(submission["submission_id"])
+            result = await self.results_client.submission(submission_id)
+            status = result.get("status")
+            if status == EventStatus.ATTRIBUTED.value:
+                self.sdk.record_submission_result(submission_id, EventStatus.ATTRIBUTED)
+            elif status == EventStatus.REJECTED.value:
+                self.sdk.record_submission_result(submission_id, EventStatus.REJECTED)
 
     def _claim_campaign_id(self, claim_id: str) -> str | None:
         """Read the campaign bound to a durable claim event."""

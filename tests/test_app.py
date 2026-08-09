@@ -119,6 +119,16 @@ def test_claim_then_submission_are_finalized(tmp_path: Path) -> None:
     )
     assert submission.status_code == 200
     assert submission.json()["status"] == "verification_pending"
+    pending = web.get("/api/submissions")
+    assert pending.status_code == 200
+    assert pending.json()[0] == {
+        "submission_id": submission.json()["submission_id"],
+        "campaign_id": "campaign",
+        "tweet_id": "999",
+        "claim_id": claim.json()["claim_id"],
+        "status": "verification_pending",
+        "created_ns": pending.json()[0]["created_ns"],
+    }
 
 
 def test_claim_timeout_returns_waiting_status(tmp_path: Path) -> None:

@@ -15,3 +15,5 @@ class WebSettings(BaseSettings):
     )
 
     force_commit_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
+    results_api_url: str = "https://bitcast-api.bitcast.network"
+    results_poll_seconds: float = Field(default=30.0, ge=5.0, le=300.0)

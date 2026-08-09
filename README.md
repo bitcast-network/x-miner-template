@@ -8,6 +8,7 @@ creator flow and runs the miner protocol in the same process:
 3. Wait for finalization before showing `safe_to_post`.
 4. Accept the published tweet URL or ID and commit its mapping to the claim.
 5. Serve finalized batches to validator-permitted hotkeys over Bittensor v11 signed HTTP.
+6. Poll hotkey-authenticated attribution results and show durable tweet verification statuses.
 
 There is intentionally no user authentication, database server, frontend framework, branding, or
 platform-specific payout logic. Durable SQLite state and browser-local operation IDs make the flow
@@ -20,8 +21,10 @@ commitment capacity, recovery, and chain communication come directly from a comm
 `safe_to_post` means the draft claim has been finalized and independently read back from chain.
 After the tweet is submitted, `verification_pending` means validators can fetch and independently
 check the tweet, author, campaign eligibility, qualification, timing, draft match, and attribution.
-The current protocol does not send the validator's eventual verdict back to the miner, so this
-template does not invent an immediate accepted/rejected result.
+The validator does not push its eventual verdict back to the miner. The template signs read
+requests with its existing miner hotkey and polls Bitcast's results API. Pending submissions are
+shown in the Tweet verifications table and move to `attributed` or `rejected` when an ingested
+validator decision becomes available. The hotkey secret never leaves the miner process.
 
 ## Requirements
 
@@ -75,6 +78,8 @@ All protocol configuration uses the upstream `BITCAST_X_` environment variables.
 is documented in [.env.example](.env.example). `X_MINER_FORCE_COMMIT_TIMEOUT_SECONDS` controls how
 long a UI request waits for chain finalization; a timeout returns the durable claim/submission id
 with a waiting status so the page can keep polling while the background commit loop finishes.
+`X_MINER_RESULTS_API_URL` selects the central read API and `X_MINER_RESULTS_POLL_SECONDS` controls
+how often pending tweet submissions are refreshed (30 seconds by default).
 
 Do not expose the wallet directory through the web server, bake keys into an image, or commit an
 `.env` file. TLS and basic network hardening belong at the deployment boundary (for example a
