@@ -90,7 +90,7 @@ def create_app(service_provider: Callable[[], MinerService], protocol_app: FastA
 
     @app.get("/api/submissions")
     async def submissions(current: Service) -> list[dict[str, object]]:
-        return current.submissions()
+        return await current.submissions()
 
     @app.get("/api/submissions/{submission_id}")
     async def submission_status(submission_id: str, current: Service) -> dict[str, str]:

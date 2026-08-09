@@ -107,6 +107,8 @@ function renderMinerStatus(health, qualification) {
 
 function verificationStatus(status) {
   if (status === "verification_pending") return "Pending validator verification";
+  if (status === "provisionally_passed") return "Passed (provisional)";
+  if (status === "provisionally_failed") return "Failed (provisional)";
   if (status === "attributed") return "Attributed";
   if (status === "rejected") return "Rejected";
   if (status === "tweet_received") return "Waiting for chain commitment";
@@ -115,7 +117,7 @@ function verificationStatus(status) {
 
 function renderVerifications(submissions) {
   if (!submissions.length) {
-    verificationRows.innerHTML = '<tr><td colspan="4">No tweet submissions yet.</td></tr>';
+    verificationRows.innerHTML = '<tr><td colspan="6">No tweet submissions yet.</td></tr>';
     return;
   }
   verificationRows.replaceChildren(...submissions.map((submission) => {
@@ -125,9 +127,12 @@ function renderVerifications(submissions) {
     tweet.target = "_blank";
     tweet.rel = "noopener noreferrer";
     tweet.textContent = submission.tweet_id;
+    const score = submission.score == null ? "—" : Number(submission.score).toFixed(4);
+    const metrics = submission.failure_reason ||
+      `${Number(submission.views || 0).toLocaleString()} views · ${Number(submission.likes || 0).toLocaleString()} likes · ${Number(submission.retweets || 0).toLocaleString()} reposts`;
     const values = [tweet, submission.campaign_id,
       new Date(Number(submission.created_ns) / 1e6).toLocaleString(),
-      verificationStatus(submission.status)];
+      verificationStatus(submission.status), score, metrics];
     for (const value of values) {
       const cell = document.createElement("td");
       if (value instanceof Node) cell.appendChild(value);

@@ -109,10 +109,17 @@ class MinerService:
             "status": status.value if status else "not_found",
         }
 
-    def submissions(self) -> list[dict[str, object]]:
-        """Return durable submissions, including remotely finalized statuses."""
+    async def submissions(self) -> list[dict[str, object]]:
+        """Return durable submissions enriched with the latest validator evaluation."""
 
-        return cast(list[dict[str, object]], self.sdk.submissions())
+        submissions = cast(list[dict[str, object]], self.sdk.submissions())
+        if self.results_client is None:
+            return submissions
+        output: list[dict[str, object]] = []
+        for submission in submissions:
+            result = await self.results_client.submission(str(submission["submission_id"]))
+            output.append({**submission, **result})
+        return output
 
     async def sync_submission_results(self) -> None:
         """Poll central attribution results for every locally pending submission."""
