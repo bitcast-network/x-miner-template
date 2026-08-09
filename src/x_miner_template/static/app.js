@@ -280,4 +280,7 @@ document.querySelector("#submission-form").addEventListener("submit", async (eve
 
 load();
 setInterval(() => refreshOperation().catch(() => {}), 5000);
-setInterval(() => refreshVerifications().catch(() => {}), 5000);
+setInterval(() => refreshVerifications().catch(() => {}), 30000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshVerifications().catch(() => {});
+});
