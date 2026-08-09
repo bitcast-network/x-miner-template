@@ -13,7 +13,10 @@
 
       <section>
         <h2>Miner status</h2>
-        <div id="miner-status">Checking…</div>
+        <dl id="miner-status" class="status-grid">
+          <dt>Status</dt>
+          <dd>Checking…</dd>
+        </dl>
       </section>
 
       <section>
@@ -33,6 +36,25 @@
           <button type="submit">Commit draft</button>
         </form>
         <p id="claim-result" class="result"></p>
+      </section>
+
+      <section>
+        <details id="resume-details">
+          <summary><h2>Resume an existing claim</h2></summary>
+          <p>
+            Use this if you already committed a draft in a previous browser session or on
+            another device, and want to pick that claim back up here instead of committing a
+            new one.
+          </p>
+          <label for="resume-campaign">Campaign</label>
+          <select id="resume-campaign"><option>Loading campaigns…</option></select>
+          <form id="resume-claim-form">
+            <label for="resume-claim-id">Claim ID</label>
+            <input id="resume-claim-id" pattern="[0-9a-f]{32}" placeholder="32-character claim id" spellcheck="false" required>
+            <button type="submit">Resume claim</button>
+          </form>
+          <p id="resume-claim-result" class="result"></p>
+        </details>
       </section>
 
       <section>

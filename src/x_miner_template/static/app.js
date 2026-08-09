@@ -1,14 +1,17 @@
 const campaignSelect = document.querySelector("#campaign");
+const resumeCampaignSelect = document.querySelector("#resume-campaign");
 const campaignDetails = document.querySelector("#campaign-details");
 const claimResult = document.querySelector("#claim-result");
+const resumeClaimResult = document.querySelector("#resume-claim-result");
 const submissionResult = document.querySelector("#submission-result");
 let campaigns = [];
 let operation = JSON.parse(localStorage.getItem("bitcastMinerOperation") || "null");
 
 async function request(path, options = {}) {
   const response = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
+  let body = {};
+  try { body = await response.json(); } catch { /* non-JSON error bodies */ }
+  if (!response.ok) throw new Error(formatDetail(body.detail) || `Request failed (${response.status})`);
   return body;
 }
 
@@ -17,36 +20,131 @@ function show(element, message, ok = true) {
   element.className = `result ${ok ? "success" : "error"}`;
 }
 
+function formatDetail(detail) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map((item) => item.msg || JSON.stringify(item)).join("; ");
+  return detail ? JSON.stringify(detail) : "";
+}
+
+function claimLabel(claimId, status) {
+  if (status === "waiting_for_commitment") {
+    return `Claim ${claimId}: waiting for chain commitment… This page will update when it finalizes.`;
+  }
+  return `Claim ${claimId}: ${status}`;
+}
+
+function submissionLabel(submissionId, status) {
+  if (status === "tweet_received") {
+    return `Submission ${submissionId}: waiting for chain commitment… This page will update when it finalizes.`;
+  }
+  return `Submission ${submissionId}: ${status}`;
+}
+
+function truncateMiddle(value, keep = 6) {
+  if (typeof value !== "string" || value.length <= keep * 2 + 1) return value;
+  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
+}
+
+function statusRow(dl, label, value, { mono = false, title } = {}) {
+  if (value === undefined || value === null || value === "") return;
+  const dt = document.createElement("dt");
+  dt.textContent = label;
+  const dd = document.createElement("dd");
+  if (mono) dd.className = "mono";
+  if (title) dd.title = title;
+  if (value instanceof Node) dd.appendChild(value);
+  else dd.textContent = value;
+  dl.append(dt, dd);
+}
+
+function badge(text, ok) {
+  const span = document.createElement("span");
+  span.className = `badge ${ok ? "yes" : "no"}`;
+  span.textContent = text;
+  return span;
+}
+
+function renderMinerStatus(health, qualification) {
+  const dl = document.querySelector("#miner-status");
+  dl.replaceChildren();
+  statusRow(dl, "Protocol", `v${health.protocol_version} (miner ${health.version})`);
+  statusRow(dl, "Qualified", badge(qualification.eligible ? "Yes" : "No", qualification.eligible));
+  statusRow(dl, "Reason", qualification.reason);
+  if (qualification.conviction_alpha !== undefined) {
+    statusRow(
+      dl,
+      "Conviction",
+      `${qualification.conviction_alpha} / ${qualification.required_conviction_alpha} α required`,
+    );
+  }
+  if (qualification.miner_hotkey) {
+    statusRow(dl, "Miner hotkey", truncateMiddle(qualification.miner_hotkey), {
+      mono: true,
+      title: qualification.miner_hotkey,
+    });
+  }
+  if (qualification.configured_owner_hotkey) {
+    statusRow(dl, "Owner hotkey", truncateMiddle(qualification.configured_owner_hotkey), {
+      mono: true,
+      title: qualification.configured_owner_hotkey,
+    });
+  }
+  if (qualification.controlling_coldkey) {
+    statusRow(dl, "Controlling coldkey", truncateMiddle(qualification.controlling_coldkey), {
+      mono: true,
+      title: qualification.controlling_coldkey,
+    });
+  }
+  if (qualification.effective_block !== undefined) {
+    statusRow(
+      dl,
+      "Effective / checked block",
+      `${qualification.effective_block} / ${qualification.checked_block ?? "latest"}`,
+    );
+  }
+}
+
+function showMinerStatusError(message) {
+  const dl = document.querySelector("#miner-status");
+  dl.replaceChildren();
+  statusRow(dl, "Status", message);
+}
+
 function selectedCampaign() {
   return campaigns.find((item) => item.access.campaign_id === campaignSelect.value);
 }
 
 function renderCampaign() {
   const campaign = selectedCampaign();
-  campaignDetails.textContent = campaign ? `${campaign.title}\n${campaign.brief}\nReward pool: $${campaign.reward_pool_usd}` : "";
+  campaignDetails.textContent = campaign ? `${campaign.title}\nReward pool: $${campaign.reward_pool_usd}` : "";
 }
 
 async function load() {
   try {
     const [health, qualification] = await Promise.all([request("/health"), request("/api/qualification")]);
-    document.querySelector("#miner-status").textContent = `Protocol ${health.protocol_version}; qualification: ${JSON.stringify(qualification)}`;
+    renderMinerStatus(health, qualification);
     campaigns = await request("/api/campaigns");
-    campaignSelect.replaceChildren(...campaigns.map((item) => {
+    const buildCampaignOptions = () => campaigns.map((item) => {
       const option = document.createElement("option");
       option.value = item.access.campaign_id;
-      option.textContent = item.title;
+      option.textContent = item.access.campaign_id;
       return option;
-    }));
+    });
+    campaignSelect.replaceChildren(...buildCampaignOptions());
+    resumeCampaignSelect.replaceChildren(...buildCampaignOptions());
     renderCampaign();
     if (operation) {
       campaignSelect.value = operation.campaignId;
+      resumeCampaignSelect.value = operation.campaignId;
       renderCampaign();
-      show(claimResult, `Restored claim ${operation.claimId}: ${operation.claimStatus}`);
-      if (operation.submissionId) show(submissionResult, `Restored submission ${operation.submissionId}: ${operation.submissionStatus}`);
+      show(claimResult, claimLabel(operation.claimId, operation.claimStatus));
+      if (operation.submissionId) {
+        show(submissionResult, submissionLabel(operation.submissionId, operation.submissionStatus));
+      }
       await refreshOperation();
     }
   } catch (error) {
-    document.querySelector("#miner-status").textContent = error.message;
+    showMinerStatusError(error.message);
   }
 }
 
@@ -54,11 +152,11 @@ async function refreshOperation() {
   if (!operation) return;
   const claim = await request(`/api/claims/${operation.claimId}`);
   operation.claimStatus = claim.status;
-  show(claimResult, `Claim ${operation.claimId}: ${claim.status}`);
+  show(claimResult, claimLabel(operation.claimId, claim.status));
   if (operation.submissionId) {
     const submission = await request(`/api/submissions/${operation.submissionId}`);
     operation.submissionStatus = submission.status;
-    show(submissionResult, `Submission ${operation.submissionId}: ${submission.status}`);
+    show(submissionResult, submissionLabel(operation.submissionId, submission.status));
   }
   localStorage.setItem("bitcastMinerOperation", JSON.stringify(operation));
 }
@@ -76,8 +174,29 @@ document.querySelector("#claim-form").addEventListener("submit", async (event) =
     }) });
     operation = { campaignId: campaignSelect.value, claimId: result.claim_id, claimStatus: result.status };
     localStorage.setItem("bitcastMinerOperation", JSON.stringify(operation));
-    show(claimResult, `Claim ${result.claim_id}: ${result.status}`);
+    show(claimResult, claimLabel(result.claim_id, result.status));
   } catch (error) { show(claimResult, error.message, false); }
+});
+
+document.querySelector("#resume-claim-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const claimId = document.querySelector("#resume-claim-id").value.trim().toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(claimId)) {
+    show(resumeClaimResult, "Enter a valid 32-character claim id.", false);
+    return;
+  }
+  show(resumeClaimResult, "Looking up claim…");
+  try {
+    const claim = await request(`/api/claims/${claimId}`);
+    const campaignId = claim.campaign_id || resumeCampaignSelect.value;
+    campaignSelect.value = campaignId;
+    resumeCampaignSelect.value = campaignId;
+    renderCampaign();
+    operation = { campaignId, claimId, claimStatus: claim.status };
+    localStorage.setItem("bitcastMinerOperation", JSON.stringify(operation));
+    show(resumeClaimResult, claimLabel(claimId, claim.status));
+    show(claimResult, claimLabel(claimId, claim.status));
+  } catch (error) { show(resumeClaimResult, error.message, false); }
 });
 
 document.querySelector("#submission-form").addEventListener("submit", async (event) => {
@@ -96,7 +215,13 @@ document.querySelector("#submission-form").addEventListener("submit", async (eve
     operation.submissionId = result.submission_id;
     operation.submissionStatus = result.status;
     localStorage.setItem("bitcastMinerOperation", JSON.stringify(operation));
-    show(submissionResult, `Submission ${result.submission_id}: ${result.status}. Validators will now fetch and verify it.`);
+    const message = submissionLabel(result.submission_id, result.status);
+    show(
+      submissionResult,
+      result.status === "verification_pending"
+        ? `${message}. Validators will now fetch and verify it.`
+        : message,
+    );
   } catch (error) { show(submissionResult, error.message, false); }
 });
 

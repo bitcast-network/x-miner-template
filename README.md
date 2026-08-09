@@ -73,8 +73,8 @@ volume; this is a stateful miner, not a horizontally replicated stateless websit
 
 All protocol configuration uses the upstream `BITCAST_X_` environment variables. The minimal set
 is documented in [.env.example](.env.example). `X_MINER_FORCE_COMMIT_TIMEOUT_SECONDS` controls how
-long a UI request waits for chain finalization; a timeout is safe because the event and any
-prepared batch remain durable and recoverable.
+long a UI request waits for chain finalization; a timeout returns the durable claim/submission id
+with a waiting status so the page can keep polling while the background commit loop finishes.
 
 Do not expose the wallet directory through the web server, bake keys into an image, or commit an
 `.env` file. TLS and basic network hardening belong at the deployment boundary (for example a

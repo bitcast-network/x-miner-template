@@ -10,3 +10,19 @@ pre { overflow: auto; white-space: pre-wrap; }
 .result { min-height: 1.5rem; }
 .error { color: #d33; }
 .success { color: #17823b; }
+summary { cursor: pointer; }
+summary h2 { display: inline; }
+details[open] summary { margin-bottom: .5rem; }
+
+.status-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: .4rem 1rem;
+  margin: 0;
+}
+.status-grid dt { font-weight: 600; opacity: .7; }
+.status-grid dd { margin: 0; overflow-wrap: anywhere; }
+.status-grid .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
+.badge { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .85em; font-weight: 700; }
+.badge.yes { background: #17823b26; color: #17823b; }
+.badge.no { background: #d3332226; color: #d33; }

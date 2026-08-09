@@ -14,4 +14,4 @@ class WebSettings(BaseSettings):
         frozen=True,
     )
 
-    force_commit_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    force_commit_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
