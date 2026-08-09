@@ -116,7 +116,9 @@ function selectedCampaign() {
 
 function renderCampaign() {
   const campaign = selectedCampaign();
-  campaignDetails.textContent = campaign ? `${campaign.title}\nReward pool: $${campaign.reward_pool_usd}` : "";
+  campaignDetails.textContent = campaign
+    ? `${campaign.display}\nPools: ${campaign.pools.join(", ")}\nReward pool: $${campaign.reward_pool_usd}`
+    : "";
 }
 
 async function load() {

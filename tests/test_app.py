@@ -53,9 +53,9 @@ class Feed:
                         "mining_protocol": "preclaim_v2",
                         "scoring_close_block": 100,
                     },
-                    "title": "Campaign",
+                    "display": "Campaign",
                     "brief": "Write an original post.",
-                    "ecosystem_id": "tao",
+                    "pools": ["tao", "hyperliquid"],
                     "opens_at": "2026-08-01T00:00:00Z",
                     "closes_at": "2026-08-10T00:00:00Z",
                     "reward_pool_usd": "1000",
@@ -94,6 +94,10 @@ def test_campaign_listing_uses_campaign_metadata_source(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()[0]["access"]["campaign_id"] == "campaign"
+    assert response.json()[0]["display"] == "Campaign"
+    assert response.json()[0]["pools"] == ["tao", "hyperliquid"]
+    assert "title" not in response.json()[0]
+    assert "ecosystem_id" not in response.json()[0]
 
 
 def test_claim_then_submission_are_finalized(tmp_path: Path) -> None:

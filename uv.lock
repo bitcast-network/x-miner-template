@@ -159,7 +159,7 @@ wheels = [
 [[package]]
 name = "bitcast-x"
 version = "0.1.0"
-source = { git = "https://github.com/bitcast-network/bitcast-x-v3.git?rev=1a7c7842e0ea52861d4c2a55a3b98f171e71d789#1a7c7842e0ea52861d4c2a55a3b98f171e71d789" }
+source = { git = "https://github.com/bitcast-network/bitcast-x-v3.git?rev=850b7285fb77ce0db40c61fac509519a86211aec#850b7285fb77ce0db40c61fac509519a86211aec" }
 dependencies = [
     { name = "bittensor" },
     { name = "diskcache" },
@@ -1302,7 +1302,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bitcast-x", git = "https://github.com/bitcast-network/bitcast-x-v3.git?rev=1a7c7842e0ea52861d4c2a55a3b98f171e71d789" },
+    { name = "bitcast-x", git = "https://github.com/bitcast-network/bitcast-x-v3.git?rev=850b7285fb77ce0db40c61fac509519a86211aec" },
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = "==0.28.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.3.0" },
