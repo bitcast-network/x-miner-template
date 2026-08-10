@@ -1,12 +1,13 @@
 """FastAPI boundary for the operator UI and validator protocol endpoint."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from hmac import compare_digest
 from pathlib import Path
 from typing import Annotated
 
 from bitcast_x.errors import BitcastXError
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from x_miner_template.service import MinerService
@@ -39,8 +40,15 @@ class SubmissionRequest(BaseModel):
         return None if value == "" else value
 
 
-def create_app(service_provider: Callable[[], MinerService], protocol_app: FastAPI) -> FastAPI:
+def create_app(
+    service_provider: Callable[[], MinerService],
+    protocol_app: FastAPI,
+    internal_api_token: str,
+) -> FastAPI:
     """Create the combined human UI and signed validator HTTP service."""
+
+    if len(internal_api_token) < 32:
+        raise ValueError("internal API token must contain at least 32 characters")
 
     app = FastAPI(title="Bitcast X miner template", docs_url="/api/docs")
 
@@ -48,6 +56,25 @@ def create_app(service_provider: Callable[[], MinerService], protocol_app: FastA
         return service_provider()
 
     Service = Annotated[MinerService, Depends(get_service)]
+
+    @app.middleware("http")
+    async def authenticate_internal_api(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Fail closed for creator operations without affecting validator btauth."""
+        if request.url.path.startswith("/api/"):
+            authorization = request.headers.get("authorization", "")
+            scheme, _, candidate = authorization.partition(" ")
+            authorized = scheme.lower() == "bearer" and compare_digest(
+                candidate, internal_api_token
+            )
+            if not authorized:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "invalid or missing internal API credentials"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        return await call_next(request)
 
     @app.exception_handler(BitcastXError)
     async def protocol_error(_request: Request, error: BitcastXError) -> JSONResponse:

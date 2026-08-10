@@ -10,9 +10,11 @@ creator flow and runs the miner protocol in the same process:
 5. Serve finalized batches to validator-permitted hotkeys over Bittensor v11 signed HTTP.
 6. Poll hotkey-authenticated attribution results and show durable tweet verification statuses.
 
-There is intentionally no user authentication, database server, frontend framework, branding, or
-platform-specific payout logic. Durable SQLite state and browser-local operation IDs make the flow
-survive process and page restarts. Consensus-sensitive batching, signing, validator authorization,
+Creator operations are an internal API protected by a service-to-service bearer token; that token
+must only be held by the miner and Stitch3 API tasks and must never be shipped to browser code.
+There is intentionally no user database, frontend framework, branding, or platform-specific payout
+logic. Durable SQLite state makes the flow survive process restarts. Consensus-sensitive batching,
+signing, validator authorization,
 commitment capacity, recovery, and chain communication come directly from a commit-pinned
 `bitcast-x-v3` dependency.
 
@@ -34,8 +36,9 @@ validator decision becomes available. The hotkey secret never leaves the miner p
 - The published campaign-feed and qualification configuration
 - Persistent storage for `/var/lib/bitcast-x`
 
-The process loads existing Bittensor keys. It never creates, imports, or copies them. The hotkey
-must be available inside the standard wallet tree configured by `BITCAST_X_WALLET_PATH`.
+The process loads an existing Bittensor hotkey. In ECS, the entrypoint materializes `HOTKEY_DATA`
+from Secrets Manager into the standard wallet tree at startup; locally, mount that wallet tree.
+It never creates or registers a key.
 
 ## Run locally
 
@@ -46,12 +49,16 @@ uv sync --all-extras
 uv run x-miner-template
 ```
 
-Open `http://localhost:8095`. Useful machine endpoints are:
+Useful machine endpoints are:
 
 - `GET /health` — process and protocol version
 - `GET /ready` — endpoint advertisement completed
 - `GET /api/docs` — UI API documentation
 - `POST /v2/batches` — signed, validator-only protocol endpoint
+
+Every `/api/*` request requires `Authorization: Bearer $X_MINER_INTERNAL_API_TOKEN`. The static
+operator page is retained for local diagnostics, but production creator traffic must go through
+the authenticated Stitch3 API rather than receiving this token in a browser.
 
 ## Run with Docker
 
@@ -80,6 +87,8 @@ long a UI request waits for chain finalization; a timeout returns the durable cl
 with a waiting status so the page can keep polling while the background commit loop finishes.
 `X_MINER_RESULTS_API_URL` selects the central read API and `X_MINER_RESULTS_POLL_SECONDS` controls
 how often pending tweet submissions are refreshed (30 seconds by default).
+`X_MINER_INTERNAL_API_TOKEN` is required, must contain at least 32 characters, and authenticates
+Stitch3 API calls to campaign, qualification, claim, and submission routes.
 
 Do not expose the wallet directory through the web server, bake keys into an image, or commit an
 `.env` file. TLS and basic network hardening belong at the deployment boundary (for example a

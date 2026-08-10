@@ -7,13 +7,14 @@ from bitcast_x.campaigns import CampaignRecord
 from bitcast_x.miner import BatchPolicy, FinalizedCommitment, MinerEngine, MinerSdk, MinerStore
 from bitcast_x.miner.engine import CapacityBudget
 from bitcast_x.protocol import CommitmentEnvelope, CommitmentPosition
-from bitcast_x.transport import create_miner_app
+from bitcast_x.transport import BatchPageRequest, create_miner_app
 from fastapi.testclient import TestClient
 
 from x_miner_template.app import create_app
 from x_miner_template.service import MinerService
 
 MINER = "5E2FKe891uQ7Y1xQ1PLjU7WAouhkxbdJhmovEapJ2cUQv5oA"
+INTERNAL_TOKEN = "test-internal-token-that-is-at-least-32-chars"  # noqa: S105
 
 
 class Submitter:
@@ -82,11 +83,31 @@ def client(tmp_path: Path, *, submitter: Submitter | None = None, timeout: float
         provider=engine.batch_page,
         authorize_validator=lambda _hotkey: _authorized(),
     )
-    return TestClient(create_app(lambda: service, protocol))
+    return TestClient(
+        create_app(lambda: service, protocol, INTERNAL_TOKEN),
+        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+    )
 
 
 async def _authorized() -> bool:
     return True
+
+
+def test_creator_api_requires_internal_bearer_token(tmp_path: Path) -> None:
+    web = client(tmp_path)
+    del web.headers["Authorization"]
+
+    response = web.get("/api/campaigns")
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+def test_validator_health_does_not_use_internal_bearer_token(tmp_path: Path) -> None:
+    web = client(tmp_path)
+    del web.headers["Authorization"]
+
+    assert web.get("/health").status_code == 200
 
 
 def test_campaign_listing_uses_campaign_metadata_source(tmp_path: Path) -> None:
@@ -129,6 +150,46 @@ def test_claim_then_submission_are_finalized(tmp_path: Path) -> None:
         "status": "verification_pending",
         "created_ns": pending.json()[0]["created_ns"],
     }
+
+
+def test_finalized_claim_and_submission_survive_restart_for_validator_fetch(
+    tmp_path: Path,
+) -> None:
+    """The durable database remains the source for validator pages after restart."""
+
+    database = tmp_path / "miner.sqlite3"
+    web = client(tmp_path)
+    claim = web.post(
+        "/api/claims",
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
+    ).json()
+    submission = web.post(
+        "/api/submissions",
+        json={
+            "campaign_id": "campaign",
+            "tweet_id": "999",
+            "claim_id": claim["claim_id"],
+        },
+    ).json()
+
+    restarted = MinerEngine(
+        miner_hotkey=MINER,
+        store=MinerStore(database),
+        submitter=Submitter(),
+        policy=BatchPolicy(max_age_seconds=5),
+    )
+    page = asyncio.run(
+        restarted.batch_page(
+            BatchPageRequest(after_sequence=0, max_batches=50),
+            "validator-hotkey",
+        )
+    )
+
+    assert page.next_sequence == 2
+    assert [event["claim_id"] for event in page.batches[0]["events"]] == [claim["claim_id"]]
+    assert [event["submission_id"] for event in page.batches[1]["events"]] == [
+        submission["submission_id"]
+    ]
 
 
 def test_claim_timeout_returns_waiting_status(tmp_path: Path) -> None:
