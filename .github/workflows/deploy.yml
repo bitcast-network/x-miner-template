@@ -26,15 +26,35 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5c3a
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::289997608167:role/bitcast-deploy' }}
-          aws-region: ${{ env.AWS_REGION }}
-      - uses: aws-actions/amazon-ecr-login@4625ce35226a7557230889aae2f52eb50ec3dcda # v2.0.1
-        id: ecr-login
+      - name: Assume deploy role with GitHub OIDC
+        env:
+          CONFIGURED_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          role_arn="${CONFIGURED_ROLE_ARN:-arn:aws:iam::289997608167:role/bitcast-deploy}"
+          oidc_token=$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
+          read -r access_key secret_key session_token <<< "$(aws sts assume-role-with-web-identity \
+            --role-arn "$role_arn" \
+            --role-session-name "x-miner-${GITHUB_RUN_ID}" \
+            --web-identity-token "$oidc_token" \
+            --duration-seconds 3600 \
+            --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+            --output text)"
+          echo "::add-mask::$access_key"
+          echo "::add-mask::$secret_key"
+          echo "::add-mask::$session_token"
+          echo "AWS_ACCESS_KEY_ID=$access_key" >> "$GITHUB_ENV"
+          echo "AWS_SECRET_ACCESS_KEY=$secret_key" >> "$GITHUB_ENV"
+          echo "AWS_SESSION_TOKEN=$session_token" >> "$GITHUB_ENV"
+      - name: Log in to Amazon ECR
+        run: |
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          echo "ECR_REGISTRY=$registry" >> "$GITHUB_ENV"
       - name: Build and push commit-pinned image
         env:
-          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
           GH_READ_ONLY: ${{ secrets.GH_READ_ONLY }}
         run: |
           docker build --secret id=github_token,env=GH_READ_ONLY \
@@ -49,15 +69,32 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::289997608167:role/bitcast-deploy' }}
-          aws-region: ${{ env.AWS_REGION }}
-      - uses: aws-actions/amazon-ecr-login@4625ce35226a7557230889aae2f52eb50ec3dcda # v2.0.1
-        id: ecr-login
-      - name: Register and deploy immutable task revision
+      - name: Assume deploy role with GitHub OIDC
         env:
-          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          CONFIGURED_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          role_arn="${CONFIGURED_ROLE_ARN:-arn:aws:iam::289997608167:role/bitcast-deploy}"
+          oidc_token=$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
+          read -r access_key secret_key session_token <<< "$(aws sts assume-role-with-web-identity \
+            --role-arn "$role_arn" \
+            --role-session-name "x-miner-${GITHUB_RUN_ID}" \
+            --web-identity-token "$oidc_token" \
+            --duration-seconds 3600 \
+            --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+            --output text)"
+          echo "::add-mask::$access_key"
+          echo "::add-mask::$secret_key"
+          echo "::add-mask::$session_token"
+          echo "AWS_ACCESS_KEY_ID=$access_key" >> "$GITHUB_ENV"
+          echo "AWS_SECRET_ACCESS_KEY=$secret_key" >> "$GITHUB_ENV"
+          echo "AWS_SESSION_TOKEN=$session_token" >> "$GITHUB_ENV"
+      - name: Resolve ECR registry
+        run: |
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          echo "ECR_REGISTRY=${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_ENV"
+      - name: Register and deploy immutable task revision
         run: |
           aws ecs describe-task-definition --task-definition "$ECS_SERVICE" \
             --query taskDefinition --output json > task-def.json
