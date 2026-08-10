@@ -14,6 +14,7 @@ from x_miner_template.app import create_app
 from x_miner_template.service import MinerService
 
 MINER = "5E2FKe891uQ7Y1xQ1PLjU7WAouhkxbdJhmovEapJ2cUQv5oA"
+INTERNAL_TOKEN = "test-internal-token-that-is-at-least-32-chars"  # noqa: S105
 
 
 class Submitter:
@@ -82,11 +83,31 @@ def client(tmp_path: Path, *, submitter: Submitter | None = None, timeout: float
         provider=engine.batch_page,
         authorize_validator=lambda _hotkey: _authorized(),
     )
-    return TestClient(create_app(lambda: service, protocol))
+    return TestClient(
+        create_app(lambda: service, protocol, INTERNAL_TOKEN),
+        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+    )
 
 
 async def _authorized() -> bool:
     return True
+
+
+def test_creator_api_requires_internal_bearer_token(tmp_path: Path) -> None:
+    web = client(tmp_path)
+    del web.headers["Authorization"]
+
+    response = web.get("/api/campaigns")
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+def test_validator_health_does_not_use_internal_bearer_token(tmp_path: Path) -> None:
+    web = client(tmp_path)
+    del web.headers["Authorization"]
+
+    assert web.get("/health").status_code == 200
 
 
 def test_campaign_listing_uses_campaign_metadata_source(tmp_path: Path) -> None:

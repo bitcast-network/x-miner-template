@@ -135,7 +135,11 @@ def build_app(protocol_settings: Settings, web_settings: WebSettings) -> FastAPI
             raise RuntimeError("miner service is not ready")
         return service
 
-    app = create_app(get_service, protocol_app)
+    app = create_app(
+        get_service,
+        protocol_app,
+        web_settings.internal_api_token.get_secret_value(),
+    )
     app.router.lifespan_context = lifespan
     return app
 
@@ -148,7 +152,7 @@ def main() -> None:
         level=protocol_settings.log_level,
         json_output=protocol_settings.log_format == "json",
     )
-    app = build_app(protocol_settings, WebSettings())
+    app = build_app(protocol_settings, WebSettings())  # type: ignore[call-arg]
     uvicorn.run(app, host=protocol_settings.host, port=protocol_settings.port)
 
 

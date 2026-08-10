@@ -1,0 +1,72 @@
+name: Build and Deploy Production X Miner
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy the immutable image after building it
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: bitcast
+  ECR_REPOSITORY: x-miner-template
+  ECS_SERVICE: bitcast-x-miner
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5c3a
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::289997608167:role/bitcast-deploy' }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64
+        id: ecr-login
+      - name: Build and push commit-pinned image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          GH_READ_ONLY: ${{ secrets.GH_READ_ONLY }}
+        run: |
+          docker build --secret id=github_token,env=GH_READ_ONLY \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+
+  deploy:
+    needs: build
+    if: ${{ inputs.deploy }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::289997608167:role/bitcast-deploy' }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64
+        id: ecr-login
+      - name: Register and deploy immutable task revision
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          aws ecs describe-task-definition --task-definition "$ECS_SERVICE" \
+            --query taskDefinition --output json > task-def.json
+          jq 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' \
+            task-def.json > clean.json
+          jq --arg image "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" \
+            '.containerDefinitions[0].image = $image' clean.json > new.json
+          arn=$(aws ecs register-task-definition --cli-input-json file://new.json \
+            --query taskDefinition.taskDefinitionArn --output text)
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --task-definition "$arn" --force-new-deployment
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
