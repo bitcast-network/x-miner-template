@@ -38,7 +38,8 @@ validator decision becomes available. The hotkey secret never leaves the miner p
 
 The process loads an existing Bittensor hotkey. In ECS, the entrypoint materializes `HOTKEY_DATA`
 from Secrets Manager into the standard wallet tree at startup; locally, mount that wallet tree.
-It never creates or registers a key.
+It never creates or registers a key. When `X_MINER_EXPECTED_HOTKEY` is configured, startup fails
+unless the injected keyfile's public address matches that exact registered hotkey.
 
 ## Run locally
 
