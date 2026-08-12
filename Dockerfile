@@ -14,11 +14,11 @@ RUN --mount=type=secret,id=github_token \
 
 FROM python:3.12.11-slim
 RUN useradd --create-home --uid 10001 miner \
-    && mkdir -p /var/lib/bitcast-x /home/miner/.bittensor/wallets \
-    && chown -R miner:miner /var/lib/bitcast-x /home/miner
+    && mkdir -p /var/lib/bitcast-x /var/lib/bitcast-wallets /home/miner/.bittensor/wallets \
+    && chown -R miner:miner /var/lib/bitcast-x /var/lib/bitcast-wallets /home/miner
 COPY --from=builder /install /usr/local
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
 USER miner
 EXPOSE 8095
-VOLUME ["/var/lib/bitcast-x", "/home/miner/.bittensor/wallets"]
+VOLUME ["/var/lib/bitcast-x", "/var/lib/bitcast-wallets", "/home/miner/.bittensor/wallets"]
 ENTRYPOINT ["/entrypoint.sh"]
