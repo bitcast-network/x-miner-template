@@ -152,6 +152,19 @@ def test_claim_then_submission_are_finalized(tmp_path: Path) -> None:
     }
 
 
+def test_exclusive_submission_retry_reuses_durable_event(tmp_path: Path) -> None:
+    web = client(tmp_path)
+    body = {"campaign_id": "campaign", "tweet_id": "999", "claim_id": None}
+
+    first = web.post("/api/submissions", json=body)
+    retried = web.post("/api/submissions", json=body)
+
+    assert first.status_code == 200
+    assert retried.status_code == 200
+    assert retried.json() == first.json()
+    assert len(web.get("/api/submissions").json()) == 1
+
+
 def test_finalized_claim_and_submission_survive_restart_for_validator_fetch(
     tmp_path: Path,
 ) -> None:
