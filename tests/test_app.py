@@ -68,6 +68,13 @@ class Feed:
         return None
 
 
+class WrongMinerFeed(Feed):
+    async def fetch_campaigns(self) -> tuple[CampaignRecord, ...]:
+        campaign = (await super().fetch_campaigns())[0]
+        access = campaign.access.model_copy(update={"exclusive_miner_hotkey": "5" + "F" * 47})
+        return (campaign.model_copy(update={"access": access}),)
+
+
 def client(tmp_path: Path, *, submitter: Submitter | None = None, timeout: float = 5) -> TestClient:
     """Create an app using real durable miner state and a fake chain."""
 
@@ -119,6 +126,27 @@ def test_campaign_listing_uses_campaign_metadata_source(tmp_path: Path) -> None:
     assert response.json()[0]["pools"] == ["tao", "hyperliquid"]
     assert "title" not in response.json()[0]
     assert "ecosystem_id" not in response.json()[0]
+
+
+def test_campaign_listing_hides_campaign_exclusive_to_another_miner(tmp_path: Path) -> None:
+    engine = MinerEngine(
+        miner_hotkey=MINER,
+        store=MinerStore(tmp_path / "miner.sqlite3"),
+        submitter=Submitter(),
+        policy=BatchPolicy(max_age_seconds=5),
+    )
+    service = MinerService(MinerSdk(engine), WrongMinerFeed(), 5)  # type: ignore[arg-type]
+    protocol = create_miner_app(
+        miner_hotkey=MINER,
+        provider=engine.batch_page,
+        authorize_validator=lambda _hotkey: _authorized(),
+    )
+    web = TestClient(
+        create_app(lambda: service, protocol, INTERNAL_TOKEN),
+        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+    )
+
+    assert web.get("/api/campaigns").json() == []
 
 
 def test_claim_then_submission_are_finalized(tmp_path: Path) -> None:
