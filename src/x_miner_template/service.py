@@ -35,9 +35,21 @@ class MinerService:
         """Return open-campaign fields needed to complete the miner flow."""
 
         if self.results_client is not None:
-            return list(await self.results_client.campaigns())
-        campaigns = await self.campaign_source.fetch_campaigns()
-        return [campaign.model_dump(mode="json") for campaign in campaigns]
+            public_campaigns = list(await self.results_client.campaigns())
+            return [campaign for campaign in public_campaigns if self._can_serve(campaign)]
+        feed_campaigns = await self.campaign_source.fetch_campaigns()
+        return [
+            campaign.model_dump(mode="json")
+            for campaign in feed_campaigns
+            if self._can_serve(campaign.model_dump(mode="json"))
+        ]
+
+    def _can_serve(self, campaign: dict[str, object]) -> bool:
+        access = campaign.get("access")
+        if not isinstance(access, dict):
+            return False
+        exclusive = access.get("exclusive_miner_hotkey")
+        return exclusive is None or exclusive == self.sdk.engine.miner_hotkey
 
     async def create_claim(self, campaign_id: str, creator_x_id: str, draft: str) -> dict[str, str]:
         """Create and finalize a claim before telling a creator it is safe to post."""
