@@ -61,7 +61,19 @@ jobs:
         run: |
           docker build --secret id=github_token,env=GH_READ_ONLY \
             -t "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" .
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+          set +e
+          push_output=$(docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" 2>&1)
+          push_status=$?
+          set -e
+          printf '%s\n' "$push_output"
+          if [ "$push_status" -eq 0 ]; then
+            exit 0
+          fi
+          if grep -q 'already exists.*cannot be overwritten' <<<"$push_output"; then
+            echo "Commit-pinned image already exists; reusing the immutable image"
+            exit 0
+          fi
+          exit "$push_status"
 
   deploy:
     needs: build
