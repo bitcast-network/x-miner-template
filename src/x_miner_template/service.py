@@ -56,6 +56,19 @@ class MinerService:
     ) -> dict[str, str]:
         """Commit a published tweet mapping for validator retrieval and verification."""
 
+        # A platform may retry after losing the first response. Reuse the
+        # durable protocol event instead of committing the same tweet twice.
+        for existing in self.sdk.submissions():
+            if (
+                existing["campaign_id"] == campaign_id
+                and existing["tweet_id"] == tweet_id
+                and existing["claim_id"] == claim_id
+            ):
+                return {
+                    "submission_id": str(existing["submission_id"]),
+                    "status": str(existing["status"]),
+                }
+
         if claim_id is not None:
             expected = self._claim_campaign_id(claim_id)
             if expected is None:
