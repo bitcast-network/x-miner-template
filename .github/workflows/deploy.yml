@@ -15,7 +15,9 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECS_CLUSTER: bitcast
-  ECR_REPOSITORY: x-miner-template
+  # Existing immutable production repository and ECS task definition both use
+  # this service name. The source repository name is not an ECR repository.
+  ECR_REPOSITORY: bitcast-x-miner
   ECS_SERVICE: bitcast-x-miner
 
 jobs:
