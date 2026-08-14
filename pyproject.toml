@@ -9,7 +9,7 @@ description = "Minimal web miner for the Bitcast X v3 protocol"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "bitcast-x @ git+https://github.com/bitcast-network/bitcast-x-v3.git@57cb5ea8570ecdcab8d0c528dad343f6b02873e4",
+    "bitcast-x @ git+https://github.com/bitcast-network/bitcast-x-v3.git@b1d12a2bf3f9af7f557e2606add81861558e3473",
     "fastapi==0.141.1",
     "httpx==0.28.1",
     "pydantic==2.13.4",
