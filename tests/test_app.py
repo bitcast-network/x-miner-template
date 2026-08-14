@@ -110,11 +110,15 @@ def test_creator_api_requires_internal_bearer_token(tmp_path: Path) -> None:
     assert response.headers["www-authenticate"] == "Bearer"
 
 
-def test_validator_health_does_not_use_internal_bearer_token(tmp_path: Path) -> None:
+def test_v3_validator_protocol_does_not_use_internal_bearer_token(tmp_path: Path) -> None:
     web = client(tmp_path)
     del web.headers["Authorization"]
 
-    assert web.get("/health").status_code == 200
+    health = web.get("/health")
+    assert health.status_code == 200
+    assert health.json()["protocol_version"] == "3"
+    # A GET receives method-not-allowed only when the signed POST route exists.
+    assert web.get("/v3/batches").status_code == 405
 
 
 def test_campaign_listing_uses_campaign_metadata_source(tmp_path: Path) -> None:
@@ -227,8 +231,9 @@ def test_finalized_claim_and_submission_survive_restart_for_validator_fetch(
     )
 
     assert page.next_sequence == 2
-    assert [event["claim_id"] for event in page.batches[0]["events"]] == [claim["claim_id"]]
-    assert [event["submission_id"] for event in page.batches[1]["events"]] == [
+    assert page.batches[0].position == CommitmentPosition(block=100, extrinsic_index=1)
+    assert [event["claim_id"] for event in page.batches[0].batch["events"]] == [claim["claim_id"]]
+    assert [event["submission_id"] for event in page.batches[1].batch["events"]] == [
         submission["submission_id"]
     ]
 
