@@ -56,11 +56,8 @@ jobs:
           aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
           echo "ECR_REGISTRY=$registry" >> "$GITHUB_ENV"
       - name: Build and push commit-pinned image
-        env:
-          GH_READ_ONLY: ${{ secrets.GH_READ_ONLY }}
         run: |
-          docker build --secret id=github_token,env=GH_READ_ONLY \
-            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" .
+          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" .
           set +e
           push_output=$(docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" 2>&1)
           push_status=$?

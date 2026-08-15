@@ -7,10 +7,7 @@ RUN apt-get update \
 WORKDIR /build
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN --mount=type=secret,id=github_token \
-    git config --global url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf "https://github.com/" \
-    && pip install --no-cache-dir --prefix=/install . \
-    && git config --global --unset-all url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf
+RUN pip install --no-cache-dir --prefix=/install .
 
 FROM python:3.12.11-slim
 RUN useradd --create-home --uid 10001 miner \

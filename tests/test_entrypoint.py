@@ -45,6 +45,44 @@ def test_entrypoint_starts_when_hotkey_matches_expected_uid(tmp_path: Path) -> N
     assert result.stdout == "started:--probe"
 
 
+def test_entrypoint_uses_existing_mounted_hotkey(tmp_path: Path) -> None:
+    environment = entrypoint_environment(tmp_path, EXPECTED_HOTKEY)
+    hotkey = Path(environment["WALLET_PATH"]) / "default" / "hotkeys" / "default"
+    hotkey.parent.mkdir(parents=True)
+    hotkey.write_text(json.dumps({"ss58Address": EXPECTED_HOTKEY}))
+    del environment["HOTKEY_DATA"]
+
+    result = subprocess.run(
+        ["/bin/sh", "./entrypoint.sh", "--probe"],
+        cwd=Path(__file__).parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "started:--probe"
+
+
+def test_entrypoint_rejects_missing_hotkey(tmp_path: Path) -> None:
+    environment = entrypoint_environment(tmp_path, EXPECTED_HOTKEY)
+    del environment["HOTKEY_DATA"]
+
+    result = subprocess.run(
+        ["/bin/sh", "./entrypoint.sh"],
+        cwd=Path(__file__).parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "HOTKEY_DATA or an existing hotkey file is required" in result.stderr
+    assert "started" not in result.stdout
+
+
 def test_entrypoint_rejects_wrong_hotkey_before_start(tmp_path: Path) -> None:
     result = subprocess.run(
         ["/bin/sh", "./entrypoint.sh"],

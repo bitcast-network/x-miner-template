@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass
 from typing import Protocol, cast
@@ -12,6 +13,8 @@ from bitcast_x.miner.engine import MinerSdk
 from bitcast_x.miner.store import EventStatus
 
 from x_miner_template.results import MinerResultsClient
+
+LOGGER = logging.getLogger(__name__)
 
 
 class CampaignSource(Protocol):
@@ -66,20 +69,7 @@ class MinerService:
     async def submit_tweet(
         self, campaign_id: str, tweet_id: str, claim_id: str | None
     ) -> dict[str, str]:
-        """Commit a published tweet mapping for validator retrieval and verification."""
-
-        # A platform may retry after losing the first response. Reuse the
-        # durable protocol event instead of committing the same tweet twice.
-        for existing in self.sdk.submissions():
-            if (
-                existing["campaign_id"] == campaign_id
-                and existing["tweet_id"] == tweet_id
-                and existing["claim_id"] == claim_id
-            ):
-                return {
-                    "submission_id": str(existing["submission_id"]),
-                    "status": str(existing["status"]),
-                }
+        """Durably accept a tweet mapping for background commitment and verification."""
 
         if claim_id is not None:
             expected = self._claim_campaign_id(claim_id)
@@ -95,7 +85,6 @@ class MinerService:
             tweet_id=tweet_id,
             claim_id=claim_id,
         )
-        await self._await_commit()
         status = self.sdk.submission_status(submission_id)
         return {
             "submission_id": submission_id,
@@ -142,8 +131,16 @@ class MinerService:
             return submissions
         output: list[dict[str, object]] = []
         for submission in submissions:
-            result = await self.results_client.submission(str(submission["submission_id"]))
-            output.append({**submission, **result})
+            try:
+                result = await self.results_client.submission(str(submission["submission_id"]))
+            except Exception:
+                LOGGER.exception(
+                    "submission result lookup failed; returning durable local state",
+                    extra={"submission_id": submission["submission_id"]},
+                )
+                output.append(submission)
+            else:
+                output.append({**submission, **result})
         return output
 
     async def sync_submission_results(self) -> None:
@@ -155,7 +152,14 @@ class MinerService:
             if submission["status"] != EventStatus.VERIFICATION_PENDING.value:
                 continue
             submission_id = str(submission["submission_id"])
-            result = await self.results_client.submission(submission_id)
+            try:
+                result = await self.results_client.submission(submission_id)
+            except Exception:
+                LOGGER.exception(
+                    "submission result sync failed; local state retained",
+                    extra={"submission_id": submission_id},
+                )
+                continue
             status = result.get("status")
             if status == EventStatus.ATTRIBUTED.value:
                 self.sdk.record_submission_result(submission_id, EventStatus.ATTRIBUTED)
