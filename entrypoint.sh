@@ -8,12 +8,13 @@ wallet_dir="${wallet_base}/${wallet_name}"
 hotkey_dir="${wallet_dir}/hotkeys"
 
 mkdir -p "${hotkey_dir}"
-if [ -z "${HOTKEY_DATA:-}" ]; then
-    echo "[entrypoint] ERROR: HOTKEY_DATA is required" >&2
+if [ -n "${HOTKEY_DATA:-}" ]; then
+    printf '%s' "${HOTKEY_DATA}" | base64 -d > "${hotkey_dir}/${hotkey_name}"
+    chmod 0600 "${hotkey_dir}/${hotkey_name}"
+elif [ ! -f "${hotkey_dir}/${hotkey_name}" ]; then
+    echo "[entrypoint] ERROR: HOTKEY_DATA or an existing hotkey file is required" >&2
     exit 1
 fi
-printf '%s' "${HOTKEY_DATA}" | base64 -d > "${hotkey_dir}/${hotkey_name}"
-chmod 0600 "${hotkey_dir}/${hotkey_name}"
 
 if [ -n "${X_MINER_EXPECTED_HOTKEY:-}" ]; then
     python - "${hotkey_dir}/${hotkey_name}" "${X_MINER_EXPECTED_HOTKEY}" <<'PY'

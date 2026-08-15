@@ -6,7 +6,7 @@ creator flow and runs the miner protocol in the same process:
 1. Load the public campaign feed and on-chain qualification status.
 2. Commit an exact draft with the registered miner hotkey.
 3. Wait for finalization before showing `safe_to_post`.
-4. Accept the published tweet URL or ID and commit its mapping to the claim.
+4. Durably accept the published tweet URL or ID and commit it in the background.
 5. Serve finalized batches to validator-permitted hotkeys over Bittensor v11 signed HTTP.
 6. Poll hotkey-authenticated attribution results and show durable tweet verification statuses.
 
@@ -16,13 +16,14 @@ There is intentionally no user database, frontend framework, branding, or platfo
 logic. Durable SQLite state makes the flow survive process restarts. Consensus-sensitive batching,
 signing, validator authorization,
 commitment capacity, recovery, and chain communication come directly from a commit-pinned
-`bitcast-x-v3` dependency.
+`bitcast-x` dependency.
 
 ## What “verification” means
 
 `safe_to_post` means the draft claim has been finalized and independently read back from chain.
-After the tweet is submitted, `verification_pending` means validators can fetch and independently
-check the tweet, author, campaign eligibility, qualification, timing, draft match, and attribution.
+After a tweet is durably accepted it moves from `tweet_received` to `verification_pending` when its
+commitment finalizes. Validators can then fetch and independently check the tweet, author, campaign
+eligibility, qualification, timing, draft match, and attribution.
 The validator does not push its eventual verdict back to the miner. The template signs read
 requests with its existing miner hotkey and polls Bitcast's results API. Pending submissions are
 shown in the Tweet verifications table and move to `attributed` or `rejected` when an ingested
@@ -55,7 +56,7 @@ Useful machine endpoints are:
 - `GET /health` — process and protocol version
 - `GET /ready` — endpoint advertisement completed
 - `GET /api/docs` — UI API documentation
-- `POST /v2/batches` — signed, validator-only protocol endpoint
+- `POST /v3/batches` — signed, validator-only protocol endpoint
 
 Every `/api/*` request requires `Authorization: Bearer $X_MINER_INTERNAL_API_TOKEN`. The static
 operator page is retained for local diagnostics, but production creator traffic must go through
@@ -63,13 +64,8 @@ the authenticated Stitch3 API rather than receiving this token in a browser.
 
 ## Run with Docker
 
-The source protocol repository is private, so the image build needs GitHub read access in the
-environment performing the build. The finished image does not contain Git credentials.
-
 ```bash
-GITHUB_TOKEN="$(gh auth token)" docker build \
-  --secret id=github_token,env=GITHUB_TOKEN \
-  -t x-miner-template .
+docker build -t x-miner-template .
 docker run --rm -p 8095:8095 --env-file .env \
   -v "$PWD/state:/var/lib/bitcast-x" \
   -v "$HOME/.bittensor/wallets:/home/miner/.bittensor/wallets:ro" \
@@ -84,8 +80,9 @@ volume; this is a stateful miner, not a horizontally replicated stateless websit
 
 All protocol configuration uses the upstream `BITCAST_X_` environment variables. The minimal set
 is documented in [.env.example](.env.example). `X_MINER_FORCE_COMMIT_TIMEOUT_SECONDS` controls how
-long a UI request waits for chain finalization; a timeout returns the durable claim/submission id
-with a waiting status so the page can keep polling while the background commit loop finishes.
+long a claim request waits for chain finalization before returning its durable ID with a waiting
+status. Tweet submissions return as soon as they are durably stored, while the background commit
+loop finalizes them for validators.
 `X_MINER_RESULTS_API_URL` selects the central read API and `X_MINER_RESULTS_POLL_SECONDS` controls
 how often pending tweet submissions are refreshed (30 seconds by default).
 `X_MINER_INTERNAL_API_TOKEN` is required, must contain at least 32 characters, and authenticates
@@ -104,5 +101,5 @@ uv run mypy
 uv run pytest
 ```
 
-The template deliberately depends on a specific reviewed `bitcast-x-v3` commit. Upgrade that pin
+The template deliberately depends on a specific reviewed `bitcast-x` commit. Upgrade that pin
 explicitly after reviewing its protocol compatibility notes and rerunning this repository's gates.
