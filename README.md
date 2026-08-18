@@ -3,12 +3,13 @@
 A minimal, deployable miner website for Bitcast X v3 (SN93 mechanism 1). It provides the complete
 creator flow and runs the miner protocol in the same process:
 
-1. Load the public campaign feed and on-chain qualification status.
-2. Commit an exact draft with the registered miner hotkey.
-3. Wait for finalization before showing `safe_to_post`.
-4. Durably accept the published tweet URL or ID and commit it in the background.
-5. Serve finalized batches to validator-permitted hotkeys over Bittensor v11 signed HTTP.
-6. Poll hotkey-authenticated attribution results and show durable tweet verification statuses.
+1. Load the public v4 campaign feed and on-chain qualification status.
+2. Verify the creator entered the campaign's rank cutoff in at least one overlapping social map.
+3. Commit an exact draft with the registered miner hotkey.
+4. Wait for finalization before showing `safe_to_post`.
+5. Durably accept the published tweet URL or ID and commit it in the background.
+6. Serve finalized batches to validator-permitted hotkeys over Bittensor v11 signed HTTP.
+7. Poll hotkey-authenticated attribution results and show durable tweet verification statuses.
 
 Creator operations are an internal API protected by a service-to-service bearer token; that token
 must only be held by the miner and Stitch3 API tasks and must never be shipped to browser code.

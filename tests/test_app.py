@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import bittensor as bt
 import httpx
-from bitcast_x.campaigns import CampaignRecord
+from bitcast_x.campaigns import CampaignFeed, CampaignRecord
 from bitcast_x.miner import BatchPolicy, FinalizedCommitment, MinerEngine, MinerSdk, MinerStore
 from bitcast_x.miner.engine import CapacityBudget
 from bitcast_x.protocol import CommitmentEnvelope, CommitmentPosition
@@ -47,25 +47,56 @@ class SlowSubmitter(Submitter):
 class Feed:
     """Minimal campaign source for creator-facing HTTP tests."""
 
-    async def fetch_campaigns(self) -> tuple[CampaignRecord, ...]:
-        return (
-            CampaignRecord.model_validate(
-                {
-                    "access": {
-                        "campaign_id": "campaign",
-                        "mechanism_id": 1,
-                        "mining_protocol": "preclaim_v2",
-                        "scoring_close_block": 100,
+    async def fetch(self) -> CampaignFeed:
+        return CampaignFeed.model_validate(
+            {
+                "protocol_version": 2,
+                "snapshot_id": "test-snapshot",
+                "published_at": "2026-08-05T00:00:00Z",
+                "campaigns": [
+                    {
+                        "access": {
+                            "campaign_id": "campaign",
+                            "mechanism_id": 1,
+                            "mining_protocol": "preclaim_v2",
+                            "scoring_close_block": 100,
+                        },
+                        "display": "Campaign",
+                        "brief": "Write an original post.",
+                        "pools": ["tao", "hyperliquid"],
+                        "opens_at": "2026-08-01T00:00:00Z",
+                        "closes_at": "2026-08-10T00:00:00Z",
+                        "reward_pool_usd": "1000",
+                        "max_members": 1,
+                    }
+                ],
+                "ecosystem_maps": [
+                    {
+                        "ecosystem_id": "tao",
+                        "name": "tao",
+                        "eligible_creator_x_ids": ["123", "999"],
+                        "updated_at": "2026-07-30T00:00:00Z",
+                        "accounts": [
+                            {"x_id": "123", "username": "eligible_old", "influence": 0.9},
+                            {"x_id": "999", "username": "eligible_new", "influence": 0.1},
+                        ],
                     },
-                    "display": "Campaign",
-                    "brief": "Write an original post.",
-                    "pools": ["tao", "hyperliquid"],
-                    "opens_at": "2026-08-01T00:00:00Z",
-                    "closes_at": "2026-08-10T00:00:00Z",
-                    "reward_pool_usd": "1000",
-                }
-            ),
+                    {
+                        "ecosystem_id": "tao",
+                        "name": "tao",
+                        "eligible_creator_x_ids": ["123", "999"],
+                        "updated_at": "2026-08-05T00:00:00Z",
+                        "accounts": [
+                            {"x_id": "123", "username": "eligible_old", "influence": 0.1},
+                            {"x_id": "999", "username": "eligible_new", "influence": 0.9},
+                        ],
+                    },
+                ],
+            }
         )
+
+    async def fetch_campaigns(self) -> tuple[CampaignRecord, ...]:
+        return (await self.fetch()).campaigns
 
     async def close(self) -> None:
         return None
@@ -228,6 +259,27 @@ def test_claim_is_finalized_and_submission_is_durably_acknowledged(tmp_path: Pat
         "status": "tweet_received",
         "created_ns": pending.json()[0]["created_ns"],
     }
+
+
+def test_claim_accepts_creator_who_dropped_below_cutoff_mid_campaign(tmp_path: Path) -> None:
+    # Creator 123 ranks first in the pre-campaign map and second in the current map.
+    response = client(tmp_path).post(
+        "/api/claims",
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "safe_to_post"
+
+
+def test_claim_rejects_creator_who_was_never_inside_campaign_cutoff(tmp_path: Path) -> None:
+    response = client(tmp_path).post(
+        "/api/claims",
+        json={"campaign_id": "campaign", "creator_x_id": "777", "draft": "Exact draft"},
+    )
+
+    assert response.status_code == 400
+    assert "never entered" in response.json()["detail"]
 
 
 def test_exclusive_submission_retry_reuses_durable_event(tmp_path: Path) -> None:
