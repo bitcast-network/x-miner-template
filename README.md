@@ -102,5 +102,7 @@ uv run mypy
 uv run pytest
 ```
 
-The template deliberately depends on a specific reviewed `bitcast-x` commit. Upgrade that pin
-explicitly after reviewing its protocol compatibility notes and rerunning this repository's gates.
+The template deliberately depends on a specific reviewed `bitcast-x` commit. Its qualification
+panel reports both owner-lock conviction and pair-specific owner-to-miner self-stake, including the
+path that currently qualifies the miner. Upgrade the pin explicitly after reviewing its protocol
+compatibility notes and rerunning this repository's gates.
