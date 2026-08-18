@@ -71,11 +71,25 @@ function renderMinerStatus(health, qualification) {
   statusRow(dl, "Protocol", `v${health.protocol_version} (miner ${health.version})`);
   statusRow(dl, "Qualified", badge(qualification.eligible ? "Yes" : "No", qualification.eligible));
   statusRow(dl, "Reason", qualification.reason);
+  if (qualification.qualified_via) {
+    const path = qualification.qualified_via === "owner_lock" ? "Owner lock" : "Self-stake";
+    statusRow(dl, "Qualified via", path);
+  }
   if (qualification.conviction_alpha !== undefined) {
     statusRow(
       dl,
       "Conviction",
       `${qualification.conviction_alpha} / ${qualification.required_conviction_alpha} α required`,
+    );
+  }
+  if (
+    qualification.required_self_stake_alpha !== undefined &&
+    qualification.required_self_stake_alpha !== null
+  ) {
+    statusRow(
+      dl,
+      "Self-stake",
+      `${qualification.self_stake_alpha} / ${qualification.required_self_stake_alpha} α required`,
     );
   }
   if (qualification.miner_hotkey) {
@@ -88,6 +102,12 @@ function renderMinerStatus(health, qualification) {
     statusRow(dl, "Owner hotkey", truncateMiddle(qualification.configured_owner_hotkey), {
       mono: true,
       title: qualification.configured_owner_hotkey,
+    });
+  }
+  if (qualification.lock_target_hotkey) {
+    statusRow(dl, "Lock target", truncateMiddle(qualification.lock_target_hotkey), {
+      mono: true,
+      title: qualification.lock_target_hotkey,
     });
   }
   if (qualification.controlling_coldkey) {

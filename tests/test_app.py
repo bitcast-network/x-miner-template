@@ -169,6 +169,15 @@ def test_campaign_listing_uses_campaign_metadata_source(tmp_path: Path) -> None:
     assert "ecosystem_id" not in response.json()[0]
 
 
+def test_creator_ui_explains_both_qualification_paths() -> None:
+    script = Path("src/x_miner_template/static/app.js").read_text()
+
+    assert 'statusRow(dl, "Qualified via", path)' in script
+    assert '"Self-stake"' in script
+    assert "required_self_stake_alpha" in script
+    assert '"Lock target"' in script
+
+
 def test_campaign_listing_hides_campaign_exclusive_to_another_miner(tmp_path: Path) -> None:
     engine = MinerEngine(
         miner_hotkey=MINER,
