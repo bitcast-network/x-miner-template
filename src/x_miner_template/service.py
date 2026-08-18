@@ -7,7 +7,11 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Protocol, cast
 
-from bitcast_x.campaigns import CampaignRecord
+from bitcast_x.campaigns import (
+    CampaignFeed,
+    CampaignRecord,
+    eligible_creator_ids_for_campaign,
+)
 from bitcast_x.errors import ProtocolError
 from bitcast_x.miner.engine import MinerSdk
 from bitcast_x.miner.store import EventStatus
@@ -19,6 +23,8 @@ LOGGER = logging.getLogger(__name__)
 
 class CampaignSource(Protocol):
     """Campaign feed operations required by the web application."""
+
+    async def fetch(self) -> CampaignFeed: ...
 
     async def fetch_campaigns(self) -> tuple[CampaignRecord, ...]: ...
 
@@ -56,6 +62,20 @@ class MinerService:
 
     async def create_claim(self, campaign_id: str, creator_x_id: str, draft: str) -> dict[str, str]:
         """Create and finalize a claim before telling a creator it is safe to post."""
+
+        feed = await self.campaign_source.fetch()
+        campaign = next(
+            (item for item in feed.campaigns if item.access.campaign_id == campaign_id),
+            None,
+        )
+        if campaign is None:
+            raise ProtocolError(f"campaign {campaign_id!r} is not available")
+        if campaign.max_members is None:
+            raise ProtocolError("campaign feed does not provide a creator-rank cutoff")
+        if creator_x_id not in eligible_creator_ids_for_campaign(feed, campaign):
+            raise ProtocolError(
+                "creator never entered this campaign's rank cutoff and cannot create a claim"
+            )
 
         claim_id = self.sdk.create_claim(
             campaign_id=campaign_id,
