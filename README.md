@@ -35,7 +35,7 @@ validator decision becomes available. The hotkey secret never leaves the miner p
 - Python 3.12 or Docker
 - A Bittensor coldkey/hotkey already registered as a miner on netuid 93
 - A public IPv4 address and inbound TCP port 8095
-- The published campaign-feed and qualification configuration
+- The published campaign feed; Finney qualification history is bundled with the pinned release
 - Persistent storage for `/var/lib/bitcast-x`
 
 The process loads an existing Bittensor hotkey. In ECS, the entrypoint materializes `HOTKEY_DATA`
@@ -102,7 +102,9 @@ uv run mypy
 uv run pytest
 ```
 
-The template deliberately depends on a specific reviewed `bitcast-x` commit. Its qualification
-panel reports both owner-lock conviction and pair-specific owner-to-miner self-stake, including the
-path that currently qualifies the miner. Upgrade the pin explicitly after reviewing its protocol
-compatibility notes and rerunning this repository's gates.
+The template deliberately depends on a specific reviewed `bitcast-x` commit. Finney qualification
+history ships in that dependency rather than the operator's environment, so upgrading and
+restarting adopts the current rules automatically. The qualification panel reports both owner-lock
+conviction and pair-specific owner-to-miner self-stake, including the path that currently qualifies
+the miner. Upgrade the pin explicitly after reviewing its protocol compatibility notes and
+rerunning this repository's gates.
