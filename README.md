@@ -16,8 +16,8 @@ must only be held by the miner and Stitch3 API tasks and must never be shipped t
 There is intentionally no user database, frontend framework, branding, or platform-specific payout
 logic. Durable SQLite state makes the flow survive process restarts. Consensus-sensitive batching,
 signing, validator authorization,
-commitment capacity, recovery, and chain communication come directly from a commit-pinned
-`bitcast-x` dependency.
+commitment capacity, recovery, and chain communication come directly from the latest `bitcast-x`
+code available when the miner is deliberately installed or built.
 
 ## What “verification” means
 
@@ -35,7 +35,7 @@ validator decision becomes available. The hotkey secret never leaves the miner p
 - Python 3.12 or Docker
 - A Bittensor coldkey/hotkey already registered as a miner on netuid 93
 - A public IPv4 address and inbound TCP port 8095
-- The published campaign feed; Finney qualification history is bundled with the pinned release
+- The published campaign feed; Finney qualification history is bundled with `bitcast-x`
 - Persistent storage for `/var/lib/bitcast-x`
 
 The process loads an existing Bittensor hotkey. In ECS, the entrypoint materializes `HOTKEY_DATA`
@@ -48,7 +48,7 @@ unless the injected keyfile's public address matches that exact registered hotke
 ```bash
 cp .env.example .env
 # Edit the placeholders in .env.
-uv sync --all-extras
+uv sync --upgrade-package bitcast-x --all-extras
 uv run x-miner-template
 ```
 
@@ -66,7 +66,7 @@ the authenticated Stitch3 API rather than receiving this token in a browser.
 ## Run with Docker
 
 ```bash
-docker build -t x-miner-template .
+docker build --no-cache -t x-miner-template .
 docker run --rm -p 8095:8095 --env-file .env \
   -v "$PWD/state:/var/lib/bitcast-x" \
   -v "$HOME/.bittensor/wallets:/home/miner/.bittensor/wallets:ro" \
@@ -102,9 +102,9 @@ uv run mypy
 uv run pytest
 ```
 
-The template deliberately depends on a specific reviewed `bitcast-x` commit. Finney qualification
-history ships in that dependency rather than the operator's environment, so upgrading and
-restarting adopts the current rules automatically. The qualification panel reports both owner-lock
+The template installs `bitcast-x` from its latest `main` revision whenever the miner is deliberately
+installed or rebuilt. Running miners and existing container images never update themselves;
+operators remain in control of when an upgrade happens. Finney qualification history ships in that
+dependency rather than the operator's environment. The qualification panel reports both owner-lock
 conviction and pair-specific owner-to-miner self-stake, including the path that currently qualifies
-the miner. Upgrade the pin explicitly after reviewing its protocol compatibility notes and
-rerunning this repository's gates.
+the miner.

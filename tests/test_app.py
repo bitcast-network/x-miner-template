@@ -212,8 +212,14 @@ def test_creator_ui_explains_both_qualification_paths() -> None:
 def test_finney_qualification_is_not_operator_managed() -> None:
     template = Path(".env.example").read_text()
 
-    assert "qualification history ships with the pinned bitcast-x release" in template
+    assert "qualification history ships with bitcast-x" in template
     assert "BITCAST_X_QUALIFICATION_" not in template
+
+
+def test_bitcast_x_dependency_tracks_latest_main() -> None:
+    project = Path("pyproject.toml").read_text()
+
+    assert "bitcast-x.git@main" in project
 
 
 def test_campaign_listing_hides_campaign_exclusive_to_another_miner(tmp_path: Path) -> None:
