@@ -3,84 +3,129 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bitcast X Miner</title>
+    <meta name="description" content="A complete reference product built on the Bitcast X miner API.">
+    <title>Bitcast X · Reference Miner</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main>
-      <h1>Bitcast X Miner</h1>
-      <p>This page commits your draft before you post, then submits the published tweet to validators.</p>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Bitcast X reference miner home">
+        <span class="brand-mark">BX</span>
+        <span>Reference Miner</span>
+      </a>
+      <div id="node-badge" class="status-badge pending">Connecting to miner…</div>
+    </header>
 
-      <section>
-        <h2>Miner status</h2>
-        <dl id="miner-status" class="status-grid">
-          <dt>Status</dt>
-          <dd>Checking…</dd>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">BITCAST X · PROTOCOL V2</p>
+        <h1>Mine creator campaigns across the ecosystems you choose.</h1>
+        <p class="hero-copy">
+          This small reference product covers discovery, eligibility, safe-to-post claims,
+          tweet submission, validation results, leaderboards and total USD reward recommendations.
+        </p>
+        <dl id="qualification" class="qualification">
+          <div><dt>Miner</dt><dd>Loading…</dd></div>
+          <div><dt>Qualification</dt><dd>Loading…</dd></div>
+          <div><dt>Checked block</dt><dd>—</dd></div>
         </dl>
       </section>
 
-      <section>
-        <h2>1. Select a campaign</h2>
-        <label for="campaign">Campaign</label>
-        <select id="campaign"><option>Loading campaigns…</option></select>
-        <pre id="campaign-details"></pre>
+      <section class="workspace">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">01 · DISCOVER</p>
+            <h2>Campaigns</h2>
+          </div>
+          <label class="creator-field">
+            <span>Your numeric X user ID</span>
+            <input id="creator-x-id" inputmode="numeric" pattern="[0-9]+" placeholder="e.g. 123456789">
+          </label>
+        </div>
+        <div id="ecosystem-filters" class="filters" aria-label="Ecosystem filters"></div>
+        <p id="campaign-message" class="muted">Loading campaigns…</p>
+        <div id="campaign-grid" class="campaign-grid"></div>
       </section>
 
-      <section>
-        <h2>2. Verify your draft before posting</h2>
-        <form id="claim-form">
-          <label for="creator-x-id">Your numeric X user ID</label>
-          <input id="creator-x-id" inputmode="numeric" pattern="[0-9]+" required>
-          <label for="draft">Exact tweet draft</label>
-          <textarea id="draft" maxlength="20000" required></textarea>
-          <button type="submit">Commit draft</button>
-        </form>
-        <p id="claim-result" class="result"></p>
+      <section id="campaign-workspace" class="workspace hidden">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">02 · PARTICIPATE</p>
+            <h2 id="selected-title">Campaign</h2>
+          </div>
+          <button id="refresh-campaign" class="button secondary" type="button">Refresh</button>
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <h3>Campaign brief</h3>
+            <p id="campaign-brief"></p>
+            <dl id="campaign-metadata" class="detail-list"></dl>
+            <button id="check-eligibility" class="button secondary" type="button">Check eligibility</button>
+            <div id="eligibility-result" class="notice neutral">Enter your X user ID, then check eligibility.</div>
+          </article>
+
+          <article class="panel">
+            <h3 id="operation-title">Commit draft</h3>
+            <form id="claim-form">
+              <label>
+                <span>Exact unpublished tweet</span>
+                <textarea id="draft" maxlength="20000" rows="7" required></textarea>
+              </label>
+              <button class="button primary" type="submit">Create safe-to-post claim</button>
+            </form>
+            <div id="claim-result" class="notice neutral">No claim created yet.</div>
+
+            <form id="submission-form">
+              <label>
+                <span>Published tweet URL or ID</span>
+                <input id="tweet-id" required placeholder="https://x.com/you/status/…">
+              </label>
+              <button class="button primary" type="submit">Submit tweet</button>
+            </form>
+            <div id="submission-result" class="notice neutral">No tweet submitted yet.</div>
+          </article>
+        </div>
       </section>
 
-      <section>
-        <details id="resume-details">
-          <summary><h2>Resume an existing claim</h2></summary>
-          <p>
-            Use this if you already committed a draft in a previous browser session or on
-            another device, and want to pick that claim back up here instead of committing a
-            new one.
-          </p>
-          <label for="resume-campaign">Campaign</label>
-          <select id="resume-campaign"><option>Loading campaigns…</option></select>
-          <form id="resume-claim-form">
-            <label for="resume-claim-id">Claim ID</label>
-            <input id="resume-claim-id" pattern="[0-9a-f]{32}" placeholder="32-character claim id" spellcheck="false" required>
-            <button type="submit">Resume claim</button>
-          </form>
-          <p id="resume-claim-result" class="result"></p>
-        </details>
-      </section>
-
-      <section>
-        <h2>3. Post on X, then submit</h2>
-        <p>Only post after step 2 says <code>safe_to_post</code>. Do not change the committed draft.</p>
-        <form id="submission-form">
-          <label for="tweet">Tweet URL or numeric tweet ID</label>
-          <input id="tweet" required>
-          <button type="submit">Submit tweet</button>
-        </form>
-        <p id="submission-result" class="result"></p>
-      </section>
-
-      <section>
-        <h2>Tweet verifications</h2>
-        <p>Pending submissions update automatically when a validator result is published.</p>
+      <section class="workspace">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">03 · TRACK</p>
+            <h2>Your submissions</h2>
+          </div>
+          <button id="refresh-submissions" class="button secondary" type="button">Refresh</button>
+        </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Tweet</th><th>Campaign</th><th>Submitted</th><th>Status</th><th>Score</th><th>Metrics / reason</th></tr></thead>
-            <tbody id="verification-rows">
-              <tr><td colspan="6">No tweet submissions yet.</td></tr>
-            </tbody>
+            <thead>
+              <tr><th>Tweet</th><th>Campaign</th><th>Status</th><th>Score</th><th>Recommended reward</th><th>Result</th></tr>
+            </thead>
+            <tbody id="submission-rows"><tr><td colspan="6">No submissions yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="leaderboard-section" class="workspace hidden">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">04 · RESULTS</p>
+            <h2>Campaign tweets</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Creator</th><th>Tweet</th><th>Score</th><th>Views</th><th>Engagements</th><th>Reward</th></tr>
+            </thead>
+            <tbody id="leaderboard-rows"><tr><td colspan="6">Select a campaign.</td></tr></tbody>
           </table>
         </div>
       </section>
     </main>
+
+    <footer>
+      Reference implementation only. Creator authentication, payments and compliance belong to the miner application.
+    </footer>
     <script src="/app.js" defer></script>
   </body>
 </html>

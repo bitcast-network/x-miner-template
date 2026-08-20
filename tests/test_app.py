@@ -1,428 +1,173 @@
-"""Offline HTTP tests for the complete creator-facing miner flow."""
+"""Offline tests for the reference product and server-side node boundary."""
 
-import asyncio
-from pathlib import Path
-from unittest.mock import AsyncMock
+from typing import Any
 
-import bittensor as bt
 import httpx
-from bitcast_x.campaigns import CampaignFeed, CampaignRecord
-from bitcast_x.miner import BatchPolicy, FinalizedCommitment, MinerEngine, MinerSdk, MinerStore
-from bitcast_x.miner.engine import CapacityBudget
-from bitcast_x.protocol import CommitmentEnvelope, CommitmentPosition
-from bitcast_x.transport import BatchPageRequest, SignedMinerClient, create_miner_app
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from x_miner_template.app import create_app
-from x_miner_template.service import MinerService
+from x_miner_template.config import Settings
+from x_miner_template.node import MinerNodeClient, MinerNodeError
 
-MINER = "5E2FKe891uQ7Y1xQ1PLjU7WAouhkxbdJhmovEapJ2cUQv5oA"
-INTERNAL_TOKEN = "test-internal-token-that-is-at-least-32-chars"  # noqa: S105
-
-
-class Submitter:
-    """Finalizing in-memory chain adapter for HTTP tests."""
-
-    async def capacity(self, _envelope: CommitmentEnvelope) -> CapacityBudget:
-        return CapacityBudget(remaining_space=100, next_call_charge=100)
-
-    async def latest(self) -> None:
-        return None
-
-    async def submit(self, envelope: CommitmentEnvelope) -> FinalizedCommitment:
-        return FinalizedCommitment(
-            position=CommitmentPosition(block=100, extrinsic_index=1),
-            stored_envelope=envelope.encode(),
-        )
+NODE_TOKEN = "n" * 64
+DEMO_PASSWORD = "strong-demo-password"  # noqa: S105
 
 
-class SlowSubmitter(Submitter):
-    """Chain adapter that exceeds the UI force-commit timeout."""
+class Node:
+    def __init__(self) -> None:
+        self.requests: list[dict[str, Any]] = []
 
-    async def submit(self, envelope: CommitmentEnvelope) -> FinalizedCommitment:
-        await asyncio.sleep(1)
-        return await super().submit(envelope)
+    async def health(self) -> dict[str, Any]:
+        return {"status": "healthy", "protocol_version": "3"}
 
+    async def qualification(self) -> dict[str, Any]:
+        return {"eligible": True, "miner_hotkey": "miner", "checked_block": 100}
 
-class Feed:
-    """Minimal campaign source for creator-facing HTTP tests."""
+    async def ecosystems(self) -> dict[str, Any]:
+        return {"items": [{"ecosystem_id": "tao", "name": "TAO", "enabled": True}]}
 
-    async def fetch(self) -> CampaignFeed:
-        return CampaignFeed.model_validate(
-            {
-                "protocol_version": 2,
-                "snapshot_id": "test-snapshot",
-                "published_at": "2026-08-05T00:00:00Z",
-                "campaigns": [
-                    {
-                        "access": {
-                            "campaign_id": "campaign",
-                            "mechanism_id": 1,
-                            "mining_protocol": "preclaim_v2",
-                            "scoring_close_block": 100,
-                        },
-                        "display": "Campaign",
-                        "brief": "Write an original post.",
-                        "pools": ["tao", "hyperliquid"],
-                        "opens_at": "2026-08-01T00:00:00Z",
-                        "closes_at": "2026-08-10T00:00:00Z",
-                        "reward_pool_usd": "1000",
-                        "max_members": 1,
-                    }
-                ],
-                "ecosystem_maps": [
-                    {
-                        "ecosystem_id": "tao",
-                        "name": "tao",
-                        "eligible_creator_x_ids": ["123", "999"],
-                        "updated_at": "2026-07-30T00:00:00Z",
-                        "accounts": [
-                            {"x_id": "123", "username": "eligible_old", "influence": 0.9},
-                            {"x_id": "999", "username": "eligible_new", "influence": 0.1},
-                        ],
-                    },
-                    {
-                        "ecosystem_id": "tao",
-                        "name": "tao",
-                        "eligible_creator_x_ids": ["123", "999"],
-                        "updated_at": "2026-08-05T00:00:00Z",
-                        "accounts": [
-                            {"x_id": "123", "username": "eligible_old", "influence": 0.1},
-                            {"x_id": "999", "username": "eligible_new", "influence": 0.9},
-                        ],
-                    },
-                ],
-            }
-        )
+    async def campaigns(self, ecosystems: list[str]) -> dict[str, Any]:
+        self.requests.append({"operation": "campaigns", "ecosystems": ecosystems})
+        return {"items": [{"campaign_id": "campaign", "ecosystem_ids": ["tao"]}]}
 
-    async def fetch_campaigns(self) -> tuple[CampaignRecord, ...]:
-        return (await self.fetch()).campaigns
+    async def campaign(self, campaign_id: str) -> dict[str, Any]:
+        return {"campaign_id": campaign_id}
 
-    async def close(self) -> None:
-        return None
+    async def eligibility(self, campaign_id: str, creator_x_id: str) -> dict[str, Any]:
+        return {"campaign_id": campaign_id, "creator_x_id": creator_x_id, "eligible": True}
+
+    async def campaign_tweets(self, campaign_id: str, ecosystems: list[str]) -> dict[str, Any]:
+        return {"campaign_id": campaign_id, "ecosystems": ecosystems, "tweets": []}
+
+    async def request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        record = {"method": method, "path": path, **kwargs}
+        self.requests.append(record)
+        if path == "/api/v1/claims" and method == "POST":
+            return {"claim_id": "a" * 32, "usability": {"safe_to_post": True}}
+        if path == "/api/v1/submissions" and method == "POST":
+            return {"submission_id": "b" * 32, "status": "tweet_received"}
+        return {"items": []}
 
 
-class WrongMinerFeed(Feed):
-    async def fetch_campaigns(self) -> tuple[CampaignRecord, ...]:
-        campaign = (await super().fetch_campaigns())[0]
-        access = campaign.access.model_copy(update={"exclusive_miner_hotkey": "5" + "F" * 47})
-        return (campaign.model_copy(update={"access": access}),)
-
-
-def client(tmp_path: Path, *, submitter: Submitter | None = None, timeout: float = 5) -> TestClient:
-    """Create an app using real durable miner state and a fake chain."""
-
-    engine = MinerEngine(
-        miner_hotkey=MINER,
-        store=MinerStore(tmp_path / "miner.sqlite3"),
-        submitter=submitter or Submitter(),
-        policy=BatchPolicy(max_age_seconds=5),
-    )
-    service = MinerService(MinerSdk(engine), Feed(), timeout)  # type: ignore[arg-type]
-    protocol = create_miner_app(
-        miner_hotkey=MINER,
-        provider=engine.batch_page,
-        authorize_validator=lambda _hotkey: _authorized(),
-    )
-    return TestClient(
-        create_app(lambda: service, protocol, INTERNAL_TOKEN),
-        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+def settings(*, password: str | None = None) -> Settings:
+    return Settings(
+        node_url="http://node.test",
+        node_token=SecretStr(NODE_TOKEN),
+        web_username="demo",
+        web_password=SecretStr(password) if password else None,
     )
 
 
-async def _authorized() -> bool:
-    return True
+def test_static_product_and_health_are_served() -> None:
+    web = TestClient(create_app(settings(), Node))
+
+    page = web.get("/")
+
+    assert page.status_code == 200
+    assert "Reference Miner" in page.text
+    assert "reward recommendations" in page.text
+    assert web.get("/health").json()["service"] == "x-miner-template"
 
 
-def test_creator_api_requires_internal_bearer_token(tmp_path: Path) -> None:
-    web = client(tmp_path)
-    del web.headers["Authorization"]
+def test_optional_basic_auth_protects_product_but_not_health() -> None:
+    web = TestClient(create_app(settings(password=DEMO_PASSWORD), Node))
 
-    response = web.get("/api/campaigns")
-
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == "Bearer"
-
-
-def test_v3_validator_protocol_does_not_use_internal_bearer_token(tmp_path: Path) -> None:
-    web = client(tmp_path)
-    del web.headers["Authorization"]
-
-    health = web.get("/health")
-    assert health.status_code == 200
-    assert health.json()["protocol_version"] == "3"
-    # A GET receives method-not-allowed only when the signed POST route exists.
-    assert web.get("/v3/batches").status_code == 405
+    assert web.get("/").status_code == 401
+    assert web.get("/api/campaigns").status_code == 401
+    assert web.get("/health").status_code == 200
+    assert web.get("/", auth=("demo", DEMO_PASSWORD)).status_code == 200
 
 
-async def test_current_validator_client_fetches_template_v3_batches(tmp_path: Path) -> None:
-    validator = bt.Wallet(name="validator", hotkey="default", path=str(tmp_path / "wallets"))
-    validator.create_new_coldkey(use_password=False, suppress=True)
-    validator.create_new_hotkey(use_password=False, suppress=True)
-    engine = MinerEngine(
-        miner_hotkey=MINER,
-        store=MinerStore(tmp_path / "miner.sqlite3"),
-        submitter=Submitter(),
-        policy=BatchPolicy(max_age_seconds=5),
-    )
-    service = MinerService(MinerSdk(engine), Feed(), 5)  # type: ignore[arg-type]
-    protocol = create_miner_app(
-        miner_hotkey=MINER,
-        provider=engine.batch_page,
-        authorize_validator=lambda _hotkey: _authorized(),
-    )
-    app = create_app(lambda: service, protocol, INTERNAL_TOKEN)
-    validator_client = SignedMinerClient(
-        validator,
-        miner_hotkey=MINER,
-        base_url="http://miner.test",
-        transport=httpx.ASGITransport(app=app),
-    )
+def test_status_and_repeated_ecosystem_filters_are_proxied() -> None:
+    node = Node()
+    web = TestClient(create_app(settings(), lambda: node))
 
-    try:
-        response = await validator_client.fetch_batches(BatchPageRequest(after_sequence=0))
-    finally:
-        await validator_client.close()
+    status = web.get("/api/status")
+    campaigns = web.get("/api/campaigns?ecosystem_id=tao&ecosystem_id=ai_agents")
 
-    assert response.protocol_version == 3
-    assert response.miner_hotkey == MINER
-    assert response.batches == []
-
-
-def test_campaign_listing_uses_campaign_metadata_source(tmp_path: Path) -> None:
-    response = client(tmp_path).get("/api/campaigns")
-
-    assert response.status_code == 200
-    assert response.json()[0]["access"]["campaign_id"] == "campaign"
-    assert response.json()[0]["display"] == "Campaign"
-    assert response.json()[0]["pools"] == ["tao", "hyperliquid"]
-    assert "title" not in response.json()[0]
-    assert "ecosystem_id" not in response.json()[0]
-
-
-def test_creator_ui_explains_both_qualification_paths() -> None:
-    script = Path("src/x_miner_template/static/app.js").read_text()
-
-    assert 'statusRow(dl, "Qualified via", path)' in script
-    assert '"Self-stake"' in script
-    assert "required_self_stake_alpha" in script
-    assert '"Lock target"' in script
-
-
-def test_finney_qualification_is_not_operator_managed() -> None:
-    template = Path(".env.example").read_text()
-
-    assert "qualification history ships with bitcast-x" in template
-    assert "BITCAST_X_QUALIFICATION_" not in template
-
-
-def test_bitcast_x_dependency_tracks_latest_main() -> None:
-    project = Path("pyproject.toml").read_text()
-
-    assert "bitcast-x.git@main" in project
-
-
-def test_campaign_listing_hides_campaign_exclusive_to_another_miner(tmp_path: Path) -> None:
-    engine = MinerEngine(
-        miner_hotkey=MINER,
-        store=MinerStore(tmp_path / "miner.sqlite3"),
-        submitter=Submitter(),
-        policy=BatchPolicy(max_age_seconds=5),
-    )
-    service = MinerService(MinerSdk(engine), WrongMinerFeed(), 5)  # type: ignore[arg-type]
-    protocol = create_miner_app(
-        miner_hotkey=MINER,
-        provider=engine.batch_page,
-        authorize_validator=lambda _hotkey: _authorized(),
-    )
-    web = TestClient(
-        create_app(lambda: service, protocol, INTERNAL_TOKEN),
-        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
-    )
-
-    assert web.get("/api/campaigns").json() == []
-
-
-def test_claim_is_finalized_and_submission_is_durably_acknowledged(tmp_path: Path) -> None:
-    web = client(tmp_path)
-    claim = web.post(
-        "/api/claims",
-        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
-    )
-    assert claim.status_code == 200
-    assert claim.json()["status"] == "safe_to_post"
-
-    submission = web.post(
-        "/api/submissions",
-        json={
-            "campaign_id": "campaign",
-            "tweet_id": "999",
-            "claim_id": claim.json()["claim_id"],
-        },
-    )
-    assert submission.status_code == 200
-    assert submission.json()["status"] == "tweet_received"
-    pending = web.get("/api/submissions")
-    assert pending.status_code == 200
-    assert pending.json()[0] == {
-        "submission_id": submission.json()["submission_id"],
-        "campaign_id": "campaign",
-        "tweet_id": "999",
-        "claim_id": claim.json()["claim_id"],
-        "status": "tweet_received",
-        "created_ns": pending.json()[0]["created_ns"],
+    assert status.json()["qualification"]["eligible"] is True
+    assert campaigns.json()["items"][0]["campaign_id"] == "campaign"
+    assert node.requests[0] == {
+        "operation": "campaigns",
+        "ecosystems": ["tao", "ai_agents"],
     }
 
 
-def test_claim_accepts_creator_who_dropped_below_cutoff_mid_campaign(tmp_path: Path) -> None:
-    # Creator 123 ranks first in the pre-campaign map and second in the current map.
-    response = client(tmp_path).post(
-        "/api/claims",
-        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
-    )
+def test_claim_and_submission_forward_idempotency_without_exposing_node_token() -> None:
+    node = Node()
+    web = TestClient(create_app(settings(), lambda: node))
+    claim_body = {
+        "campaign_id": "campaign",
+        "creator_x_id": "123",
+        "draft": "Exact draft",
+        "external_id": "creator-claim",
+    }
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "safe_to_post"
-
-
-def test_claim_rejects_creator_who_was_never_inside_campaign_cutoff(tmp_path: Path) -> None:
-    response = client(tmp_path).post(
-        "/api/claims",
-        json={"campaign_id": "campaign", "creator_x_id": "777", "draft": "Exact draft"},
-    )
-
-    assert response.status_code == 400
-    assert "never entered" in response.json()["detail"]
-
-
-def test_exclusive_submission_retry_reuses_durable_event(tmp_path: Path) -> None:
-    web = client(tmp_path)
-    body = {"campaign_id": "campaign", "tweet_id": "999", "claim_id": None}
-
-    first = web.post("/api/submissions", json=body)
-    retried = web.post("/api/submissions", json=body)
-
-    assert first.status_code == 200
-    assert retried.status_code == 200
-    assert retried.json() == first.json()
-    assert len(web.get("/api/submissions").json()) == 1
-
-
-def test_finalized_claim_and_submission_survive_restart_for_validator_fetch(
-    tmp_path: Path,
-) -> None:
-    """The durable database remains the source for validator pages after restart."""
-
-    database = tmp_path / "miner.sqlite3"
-    web = client(tmp_path)
     claim = web.post(
         "/api/claims",
-        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
-    ).json()
+        headers={"Idempotency-Key": "claim-key-0001"},
+        json=claim_body,
+    )
     submission = web.post(
         "/api/submissions",
+        headers={"Idempotency-Key": "submission-key-0001"},
         json={
             "campaign_id": "campaign",
             "tweet_id": "999",
-            "claim_id": claim["claim_id"],
-        },
-    ).json()
-
-    restarted = MinerEngine(
-        miner_hotkey=MINER,
-        store=MinerStore(database),
-        submitter=Submitter(),
-        policy=BatchPolicy(max_age_seconds=5),
-    )
-    asyncio.run(restarted.commit_ready(force=True))
-    page = asyncio.run(
-        restarted.batch_page(
-            BatchPageRequest(after_sequence=0, max_batches=50),
-            "validator-hotkey",
-        )
-    )
-
-    assert page.next_sequence == 2
-    assert page.batches[0].position == CommitmentPosition(block=100, extrinsic_index=1)
-    assert [event["claim_id"] for event in page.batches[0].batch["events"]] == [claim["claim_id"]]
-    assert [event["submission_id"] for event in page.batches[1].batch["events"]] == [
-        submission["submission_id"]
-    ]
-
-
-async def test_result_outage_retains_durable_submission(tmp_path: Path) -> None:
-    engine = MinerEngine(
-        miner_hotkey=MINER,
-        store=MinerStore(tmp_path / "miner.sqlite3"),
-        submitter=Submitter(),
-        policy=BatchPolicy(max_age_seconds=5),
-    )
-    sdk = MinerSdk(engine)
-    submission_id = sdk.submit_tweet(
-        campaign_id="campaign",
-        tweet_id="999",
-        claim_id=None,
-    )
-    await engine.commit_ready(force=True)
-    results_client = AsyncMock()
-    results_client.submission.side_effect = RuntimeError("results unavailable")
-    service = MinerService(
-        sdk,
-        Feed(),  # type: ignore[arg-type]
-        5,
-        results_client=results_client,  # type: ignore[arg-type]
-    )
-
-    submissions = await service.submissions()
-    await service.sync_submission_results()
-
-    assert submissions == [
-        {
-            "submission_id": submission_id,
-            "campaign_id": "campaign",
-            "tweet_id": "999",
-            "claim_id": None,
-            "status": "verification_pending",
-            "created_ns": submissions[0]["created_ns"],
-        }
-    ]
-    assert results_client.submission.await_count == 2
-
-
-def test_claim_timeout_returns_waiting_status(tmp_path: Path) -> None:
-    web = client(tmp_path, submitter=SlowSubmitter(), timeout=0.05)
-    claim = web.post(
-        "/api/claims",
-        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
-    )
-    assert claim.status_code == 200
-    body = claim.json()
-    assert body["claim_id"]
-    assert body["status"] == "waiting_for_commitment"
-
-
-def test_submission_rejects_campaign_mismatch(tmp_path: Path) -> None:
-    web = client(tmp_path)
-    claim = web.post(
-        "/api/claims",
-        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
-    ).json()
-
-    response = web.post(
-        "/api/submissions",
-        json={
-            "campaign_id": "other-campaign",
-            "tweet_id": "999",
-            "claim_id": claim["claim_id"],
+            "claim_id": "a" * 32,
+            "creator_x_id": "123",
         },
     )
-    assert response.status_code == 400
-    assert "does not match claim campaign" in response.json()["detail"]
+
+    assert claim.json()["usability"]["safe_to_post"] is True
+    assert submission.json()["status"] == "tweet_received"
+    assert node.requests[0]["idempotency_key"] == "claim-key-0001"
+    assert node.requests[1]["idempotency_key"] == "submission-key-0001"
+    assert NODE_TOKEN not in str(node.requests)
 
 
-def test_rejects_non_numeric_x_identifiers(tmp_path: Path) -> None:
-    response = client(tmp_path).post(
-        "/api/claims",
-        json={"campaign_id": "campaign", "creator_x_id": "@handle", "draft": "draft"},
+async def test_node_client_keeps_bearer_server_side_and_preserves_errors() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/claims"):
+            return httpx.Response(
+                409,
+                json={"error": {"code": "idempotency_conflict", "message": "conflict"}},
+                headers={"Retry-After": "5"},
+            )
+        return httpx.Response(200, json={"items": []})
+
+    client = MinerNodeClient("http://node.test", NODE_TOKEN)
+    await client._client.aclose()  # noqa: SLF001
+    client._client = httpx.AsyncClient(  # noqa: SLF001
+        base_url="http://node.test",
+        headers={"Authorization": f"Bearer {NODE_TOKEN}"},
+        transport=httpx.MockTransport(handler),
     )
-    assert response.status_code == 422
+    try:
+        await client.campaigns(["tao", "ai_agents"])
+        try:
+            await client.request(
+                "POST",
+                "/api/v1/claims",
+                json={"campaign_id": "campaign"},
+                idempotency_key="claim-key-0001",
+            )
+        except MinerNodeError as error:
+            assert error.status_code == 409
+            assert error.retry_after == "5"
+            assert error.body["error"]["code"] == "idempotency_conflict"
+        else:
+            raise AssertionError("expected MinerNodeError")
+    finally:
+        await client.close()
+
+    assert requests[0].headers["Authorization"] == f"Bearer {NODE_TOKEN}"
+    assert requests[0].url.params.multi_items() == [
+        ("ecosystem_id", "tao"),
+        ("ecosystem_id", "ai_agents"),
+    ]
+    assert requests[1].headers["Idempotency-Key"] == "claim-key-0001"

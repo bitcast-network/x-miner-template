@@ -1,97 +1,74 @@
-# Bitcast X miner template
+# Bitcast X reference miner product
 
-A minimal, deployable miner website for Bitcast X v3 (SN93 mechanism 1). It provides the complete
-creator flow and runs the miner protocol in the same process:
+A deliberately small but complete creator product built on the Bitcast X miner application API.
+It is the example a miner can copy when building a Stitch3-like experience for one or more
+ecosystems.
 
-1. Load the public v4 campaign feed and on-chain qualification status.
-2. Verify the creator entered the campaign's rank cutoff in at least one overlapping social map.
-3. Commit an exact draft with the registered miner hotkey.
-4. Wait for finalization before showing `safe_to_post`.
-5. Durably accept the published tweet URL or ID and commit it in the background.
-6. Serve finalized batches to validator-permitted hotkeys over Bittensor v11 signed HTTP.
-7. Poll hotkey-authenticated attribution results and show durable tweet verification statuses.
+The product can:
 
-Creator operations are an internal API protected by a service-to-service bearer token; that token
-must only be held by the miner and Stitch3 API tasks and must never be shipped to browser code.
-There is intentionally no user database, frontend framework, branding, or platform-specific payout
-logic. Durable SQLite state makes the flow survive process restarts. Consensus-sensitive batching,
-signing, validator authorization,
-commitment capacity, recovery, and chain communication come directly from the latest `bitcast-x`
-code available when the miner is deliberately installed or built.
+- show miner registration and qualification;
+- discover only authorized protocol-v2 campaigns;
+- filter campaigns and results across one or many enabled ecosystems;
+- show campaign briefs, timing, pools, statistics and capabilities;
+- check creator eligibility and rank evidence using immutable numeric X IDs;
+- create idempotent claims and wait for `safe_to_post`;
+- recover claims after browser, product or node downtime;
+- submit preclaim or direct-mode tweets idempotently;
+- show local commitment state plus validator evaluation, attribution, metrics and feedback;
+- show campaign tweets and owner-private total USD reward recommendations.
 
-## What “verification” means
+Campaign publishing remains centralized in Bitcast. Creator payments remain the miner product's
+responsibility and are intentionally not represented as Bitcast payment state.
 
-`safe_to_post` means the draft claim has been finalized and independently read back from chain.
-After a tweet is durably accepted it moves from `tweet_received` to `verification_pending` when its
-commitment finalizes. Validators can then fetch and independently check the tweet, author, campaign
-eligibility, qualification, timing, draft match, and attribution.
-The validator does not push its eventual verdict back to the miner. The template signs read
-requests with its existing miner hotkey and polls Bitcast's results API. Pending submissions are
-shown in the Tweet verifications table and move to `attributed` or `rejected` when an ingested
-validator decision becomes available. The hotkey secret never leaves the miner process.
+## Architecture
 
-## Requirements
+```text
+Browser
+  -> this product backend (creator auth boundary)
+      -> bearer-authenticated /api/v1 calls
+          -> Bitcast X miner node (hotkey + durable private claims)
+              -> hotkey-signed central Bitcast reads
+```
 
-- Python 3.12 or Docker
-- A Bittensor coldkey/hotkey already registered as a miner on netuid 93
-- A public IPv4 address and inbound TCP port 8095
-- The published campaign feed; Finney qualification history is bundled with `bitcast-x`
-- Persistent storage for `/var/lib/bitcast-x`
-
-The process loads an existing Bittensor hotkey. In ECS, the entrypoint materializes `HOTKEY_DATA`
-from Secrets Manager into the standard wallet tree at startup; locally, mount that wallet tree.
-It never creates or registers a key. When `X_MINER_EXPECTED_HOTKEY` is configured, startup fails
-unless the injected keyfile's public address matches that exact registered hotkey.
+The browser never receives the node bearer token or the miner hotkey. This repository owns no
+Bittensor wallet code and can be deployed, replaced or scaled independently from the stateful miner
+node. The bundled HTTP Basic gate is suitable for a protected reference deployment; replace it
+with the product's real creator authentication and X-account association in production.
 
 ## Run locally
 
+Run a current `bitcast-x run-miner-api` node first, then:
+
 ```bash
 cp .env.example .env
-# Edit the placeholders in .env.
-uv sync --upgrade-package bitcast-x --all-extras
+# Configure X_MINER_NODE_URL and X_MINER_NODE_TOKEN.
+uv sync --all-extras
 uv run x-miner-template
 ```
 
-Useful machine endpoints are:
+Open `http://127.0.0.1:8080`. If `X_MINER_WEB_PASSWORD` is set, use the configured Basic Auth
+username and password. `GET /health` remains unauthenticated for load balancers.
 
-- `GET /health` — process and protocol version
-- `GET /ready` — endpoint advertisement completed
-- `GET /api/docs` — UI API documentation
-- `POST /v3/batches` — signed, validator-only protocol endpoint
-
-Every `/api/*` request requires `Authorization: Bearer $X_MINER_INTERNAL_API_TOKEN`. The static
-operator page is retained for local diagnostics, but production creator traffic must go through
-the authenticated Stitch3 API rather than receiving this token in a browser.
-
-## Run with Docker
+## Docker
 
 ```bash
 docker build --no-cache -t x-miner-template .
-docker run --rm -p 8095:8095 --env-file .env \
-  -v "$PWD/state:/var/lib/bitcast-x" \
-  -v "$HOME/.bittensor/wallets:/home/miner/.bittensor/wallets:ro" \
-  x-miner-template
+docker run --rm -p 8080:8080 --env-file .env x-miner-template
 ```
 
-Use a real persistent volume in production. Losing `miner.sqlite3` loses the private draft reveals
-needed to prove subsequent submissions. Run exactly one process/replica per wallet and state
-volume; this is a stateful miner, not a horizontally replicated stateless website.
+The container is stateless and runs as UID 10001. The miner node, not this web product, owns the
+hotkey, SQLite protocol state, chain commitments and validator batch endpoint.
 
 ## Configuration
 
-All protocol configuration uses the upstream `BITCAST_X_` environment variables. The minimal set
-is documented in [.env.example](.env.example). `X_MINER_FORCE_COMMIT_TIMEOUT_SECONDS` controls how
-long a claim request waits for chain finalization before returning its durable ID with a waiting
-status. Tweet submissions return as soon as they are durably stored, while the background commit
-loop finalizes them for validators.
-`X_MINER_RESULTS_API_URL` selects the central read API and `X_MINER_RESULTS_POLL_SECONDS` controls
-how often pending tweet submissions are refreshed (30 seconds by default).
-`X_MINER_INTERNAL_API_TOKEN` is required, must contain at least 32 characters, and authenticates
-Stitch3 API calls to campaign, qualification, claim, and submission routes.
-
-Do not expose the wallet directory through the web server, bake keys into an image, or commit an
-`.env` file. TLS and basic network hardening belong at the deployment boundary (for example a
-load balancer or reverse proxy); validator messages remain hotkey-signed end to end.
+| Variable | Purpose |
+|---|---|
+| `X_MINER_NODE_URL` | Private URL of the miner node |
+| `X_MINER_NODE_TOKEN` | 64-character node application credential; server-side only |
+| `X_MINER_HOST` / `X_MINER_PORT` | Product listener, default `0.0.0.0:8080` |
+| `X_MINER_REQUEST_TIMEOUT_SECONDS` | Node request timeout |
+| `X_MINER_WEB_USERNAME` | Optional hosted-demo Basic Auth username |
+| `X_MINER_WEB_PASSWORD` | Optional hosted-demo Basic Auth password |
 
 ## Development
 
@@ -101,10 +78,3 @@ uv run ruff check .
 uv run mypy
 uv run pytest
 ```
-
-The template installs `bitcast-x` from its latest `main` revision whenever the miner is deliberately
-installed or rebuilt. Running miners and existing container images never update themselves;
-operators remain in control of when an upgrade happens. Finney qualification history ships in that
-dependency rather than the operator's environment. The qualification panel reports both owner-lock
-conviction and pair-specific owner-to-miner self-stake, including the path that currently qualifies
-the miner.

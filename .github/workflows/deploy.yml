@@ -1,10 +1,10 @@
-name: Build and Deploy Production X Miner
+name: Build and Deploy Reference Miner Product
 
 on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: Deploy the immutable image after building it
+        description: Deploy and activate the immutable image after building it
         required: true
         type: boolean
         default: false
@@ -13,12 +13,11 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: us-east-1
-  ECS_CLUSTER: bitcast
-  # Existing immutable production repository and ECS task definition both use
-  # this service name. The source repository name is not an ECR repository.
-  ECR_REPOSITORY: bitcast-x-miner
-  ECS_SERVICE: bitcast-x-miner
+  AWS_REGION: ${{ vars.PRD_AWS_REGION }}
+  AWS_DEFAULT_REGION: ${{ vars.PRD_AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.PRD_X_MINER_TEMPLATE_ECR_REPOSITORY }}
+  ECS_CLUSTER: ${{ vars.PRD_X_MINER_TEMPLATE_ECS_CLUSTER }}
+  ECS_SERVICE: ${{ vars.PRD_X_MINER_TEMPLATE_ECS_SERVICE }}
 
 jobs:
   build:
@@ -28,17 +27,30 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Validate deployment configuration
+        env:
+          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          missing=()
+          for name in AWS_REGION ECR_REPOSITORY ECS_CLUSTER ECS_SERVICE DEPLOY_ROLE_ARN; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required repository variables: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
       - name: Assume deploy role with GitHub OIDC
         env:
-          CONFIGURED_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
         run: |
-          role_arn="${CONFIGURED_ROLE_ARN:-arn:aws:iam::289997608167:role/bitcast-deploy}"
           oidc_token=$(curl --fail --silent --show-error \
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
           read -r access_key secret_key session_token <<< "$(aws sts assume-role-with-web-identity \
-            --role-arn "$role_arn" \
-            --role-session-name "x-miner-${GITHUB_RUN_ID}" \
+            --role-arn "$DEPLOY_ROLE_ARN" \
+            --role-session-name "x-miner-template-${GITHUB_RUN_ID}" \
             --web-identity-token "$oidc_token" \
             --duration-seconds 3600 \
             --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
@@ -46,9 +58,11 @@ jobs:
           echo "::add-mask::$access_key"
           echo "::add-mask::$secret_key"
           echo "::add-mask::$session_token"
-          echo "AWS_ACCESS_KEY_ID=$access_key" >> "$GITHUB_ENV"
-          echo "AWS_SECRET_ACCESS_KEY=$secret_key" >> "$GITHUB_ENV"
-          echo "AWS_SESSION_TOKEN=$session_token" >> "$GITHUB_ENV"
+          {
+            echo "AWS_ACCESS_KEY_ID=$access_key"
+            echo "AWS_SECRET_ACCESS_KEY=$secret_key"
+            echo "AWS_SESSION_TOKEN=$session_token"
+          } >> "$GITHUB_ENV"
       - name: Log in to Amazon ECR
         run: |
           account_id=$(aws sts get-caller-identity --query Account --output text)
@@ -75,22 +89,36 @@ jobs:
   deploy:
     needs: build
     if: ${{ inputs.deploy }}
+    environment: production
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
+      - name: Validate deployment configuration
+        env:
+          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          missing=()
+          for name in AWS_REGION ECR_REPOSITORY ECS_CLUSTER ECS_SERVICE DEPLOY_ROLE_ARN; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required repository variables: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
       - name: Assume deploy role with GitHub OIDC
         env:
-          CONFIGURED_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
         run: |
-          role_arn="${CONFIGURED_ROLE_ARN:-arn:aws:iam::289997608167:role/bitcast-deploy}"
           oidc_token=$(curl --fail --silent --show-error \
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
           read -r access_key secret_key session_token <<< "$(aws sts assume-role-with-web-identity \
-            --role-arn "$role_arn" \
-            --role-session-name "x-miner-${GITHUB_RUN_ID}" \
+            --role-arn "$DEPLOY_ROLE_ARN" \
+            --role-session-name "x-miner-template-${GITHUB_RUN_ID}" \
             --web-identity-token "$oidc_token" \
             --duration-seconds 3600 \
             --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
@@ -98,23 +126,25 @@ jobs:
           echo "::add-mask::$access_key"
           echo "::add-mask::$secret_key"
           echo "::add-mask::$session_token"
-          echo "AWS_ACCESS_KEY_ID=$access_key" >> "$GITHUB_ENV"
-          echo "AWS_SECRET_ACCESS_KEY=$secret_key" >> "$GITHUB_ENV"
-          echo "AWS_SESSION_TOKEN=$session_token" >> "$GITHUB_ENV"
-      - name: Resolve ECR registry
-        run: |
-          account_id=$(aws sts get-caller-identity --query Account --output text)
-          echo "ECR_REGISTRY=${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_ENV"
+          {
+            echo "AWS_ACCESS_KEY_ID=$access_key"
+            echo "AWS_SECRET_ACCESS_KEY=$secret_key"
+            echo "AWS_SESSION_TOKEN=$session_token"
+          } >> "$GITHUB_ENV"
       - name: Register and deploy immutable task revision
         run: |
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           aws ecs describe-task-definition --task-definition "$ECS_SERVICE" \
             --query taskDefinition --output json > task-def.json
           jq 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' \
             task-def.json > clean.json
-          jq --arg image "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" \
+          jq --arg image "$registry/$ECR_REPOSITORY:$GITHUB_SHA" \
             '.containerDefinitions[0].image = $image' clean.json > new.json
           arn=$(aws ecs register-task-definition --cli-input-json file://new.json \
             --query taskDefinition.taskDefinitionArn --output text)
           aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
-            --task-definition "$arn" --force-new-deployment
+            --desired-count 1 --task-definition "$arn" --force-new-deployment
           aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].{taskDefinition:taskDefinition,running:runningCount,desired:desiredCount}'

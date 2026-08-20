@@ -1,306 +1,406 @@
-const campaignSelect = document.querySelector("#campaign");
-const resumeCampaignSelect = document.querySelector("#resume-campaign");
-const campaignDetails = document.querySelector("#campaign-details");
-const claimResult = document.querySelector("#claim-result");
-const resumeClaimResult = document.querySelector("#resume-claim-result");
-const submissionResult = document.querySelector("#submission-result");
-const verificationRows = document.querySelector("#verification-rows");
-let campaigns = [];
-let operation = JSON.parse(localStorage.getItem("bitcastMinerOperation") || "null");
+const $ = (selector) => document.querySelector(selector);
+
+const state = {
+  campaigns: [],
+  ecosystems: [],
+  enabledEcosystems: new Set(),
+  selectedCampaign: null,
+  claim: JSON.parse(localStorage.getItem("bx-reference-claim") || "null"),
+};
 
 async function request(path, options = {}) {
-  const response = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
+  const response = await fetch(path, {
+    ...options,
+    headers: { "content-type": "application/json", ...(options.headers || {}) },
+  });
   let body = {};
-  try { body = await response.json(); } catch { /* non-JSON error bodies */ }
-  if (!response.ok) throw new Error(formatDetail(body.detail) || `Request failed (${response.status})`);
+  try { body = await response.json(); } catch { /* retain empty body */ }
+  if (!response.ok) {
+    const detail = body.error?.message || body.detail || `Request failed (${response.status})`;
+    throw new Error(Array.isArray(detail) ? detail.map((item) => item.msg).join("; ") : detail);
+  }
   return body;
 }
 
-function show(element, message, ok = true) {
-  element.textContent = message;
-  element.className = `result ${ok ? "success" : "error"}`;
+function idempotencyKey(prefix) {
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function formatDetail(detail) {
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return detail.map((item) => item.msg || JSON.stringify(item)).join("; ");
-  return detail ? JSON.stringify(detail) : "";
+function creatorId() {
+  return $("#creator-x-id").value.trim();
 }
 
-function claimLabel(claimId, status) {
-  if (status === "waiting_for_commitment") {
-    return `Claim ${claimId}: waiting for chain commitment… This page will update when it finalizes.`;
+function requireCreator() {
+  const value = creatorId();
+  if (!/^\d+$/.test(value)) throw new Error("Enter your numeric X user ID first.");
+  localStorage.setItem("bx-reference-creator", value);
+  return value;
+}
+
+function selectedQuery() {
+  const query = new URLSearchParams();
+  for (const ecosystem of [...state.enabledEcosystems].sort()) {
+    query.append("ecosystem_id", ecosystem);
   }
-  return `Claim ${claimId}: ${status}`;
+  return query.toString();
 }
 
-function submissionLabel(submissionId, status) {
-  if (status === "tweet_received") {
-    return `Submission ${submissionId}: waiting for chain commitment… This page will update when it finalizes.`;
-  }
-  return `Submission ${submissionId}: ${status}`;
+function notice(element, text, type = "neutral") {
+  element.textContent = text;
+  element.className = `notice ${type}`;
 }
 
-function truncateMiddle(value, keep = 6) {
-  if (typeof value !== "string" || value.length <= keep * 2 + 1) return value;
-  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
+function money(value) {
+  if (value === null || value === undefined) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value));
 }
 
-function statusRow(dl, label, value, { mono = false, title } = {}) {
-  if (value === undefined || value === null || value === "") return;
+function number(value) {
+  return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
+function short(value, length = 8) {
+  if (!value || value.length <= length * 2) return value || "—";
+  return `${value.slice(0, length)}…${value.slice(-length)}`;
+}
+
+function addDetail(list, label, value) {
+  if (value === null || value === undefined || value === "") return;
   const dt = document.createElement("dt");
-  dt.textContent = label;
   const dd = document.createElement("dd");
-  if (mono) dd.className = "mono";
-  if (title) dd.title = title;
-  if (value instanceof Node) dd.appendChild(value);
-  else dd.textContent = value;
-  dl.append(dt, dd);
+  dt.textContent = label;
+  dd.textContent = value;
+  list.append(dt, dd);
 }
 
-function badge(text, ok) {
-  const span = document.createElement("span");
-  span.className = `badge ${ok ? "yes" : "no"}`;
-  span.textContent = text;
-  return span;
+function renderStatus(status) {
+  const qualification = status.qualification || {};
+  const badge = $("#node-badge");
+  badge.textContent = qualification.eligible || qualification.qualified
+    ? "Miner online · qualified"
+    : "Miner online · unavailable to claim";
+  badge.className = `status-badge ${qualification.eligible || qualification.qualified ? "ready" : "warning"}`;
+  const fields = $("#qualification").querySelectorAll("dd");
+  fields[0].textContent = short(qualification.miner_hotkey);
+  fields[0].title = qualification.miner_hotkey || "";
+  fields[1].textContent = qualification.reason || (qualification.eligible ? "Eligible" : "Not qualified");
+  fields[2].textContent = qualification.checked_block ?? "—";
 }
 
-function renderMinerStatus(health, qualification) {
-  const dl = document.querySelector("#miner-status");
-  dl.replaceChildren();
-  statusRow(dl, "Protocol", `v${health.protocol_version} (miner ${health.version})`);
-  statusRow(dl, "Qualified", badge(qualification.eligible ? "Yes" : "No", qualification.eligible));
-  statusRow(dl, "Reason", qualification.reason);
-  if (qualification.qualified_via) {
-    const path = qualification.qualified_via === "owner_lock" ? "Owner lock" : "Self-stake";
-    statusRow(dl, "Qualified via", path);
+function renderEcosystems() {
+  const target = $("#ecosystem-filters");
+  target.replaceChildren();
+  for (const ecosystem of state.ecosystems) {
+    const label = document.createElement("label");
+    label.className = "filter-chip";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = state.enabledEcosystems.has(ecosystem.ecosystem_id);
+    input.addEventListener("change", async () => {
+      if (input.checked) state.enabledEcosystems.add(ecosystem.ecosystem_id);
+      else state.enabledEcosystems.delete(ecosystem.ecosystem_id);
+      await loadCampaigns();
+    });
+    const span = document.createElement("span");
+    span.textContent = ecosystem.name;
+    label.append(input, span);
+    target.append(label);
   }
-  if (qualification.conviction_alpha !== undefined) {
-    statusRow(
-      dl,
-      "Conviction",
-      `${qualification.conviction_alpha} / ${qualification.required_conviction_alpha} α required`,
+}
+
+function campaignCard(campaign) {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = `campaign-card ${state.selectedCampaign?.campaign_id === campaign.campaign_id ? "selected" : ""}`;
+  const heading = document.createElement("div");
+  heading.className = "campaign-card-heading";
+  const name = document.createElement("h3");
+  name.textContent = campaign.presentation?.name || campaign.campaign_id;
+  const status = document.createElement("span");
+  status.className = `campaign-status ${campaign.status}`;
+  status.textContent = campaign.status.replaceAll("_", " ");
+  heading.append(name, status);
+  const ecosystems = document.createElement("p");
+  ecosystems.className = "campaign-ecosystems";
+  ecosystems.textContent = campaign.ecosystem_ids.join(" · ");
+  const stats = document.createElement("div");
+  stats.className = "campaign-stats";
+  stats.innerHTML = `<span><strong>${money(campaign.reward_pool_usd)}</strong> pool</span>`
+    + `<span><strong>${number(campaign.stats?.matched_tweets)}</strong> tweets</span>`
+    + `<span><strong>${number(campaign.stats?.total_views)}</strong> views</span>`;
+  card.append(heading, ecosystems, stats);
+  card.addEventListener("click", () => selectCampaign(campaign));
+  return card;
+}
+
+function renderCampaigns() {
+  const grid = $("#campaign-grid");
+  grid.replaceChildren(...state.campaigns.map(campaignCard));
+  $("#campaign-message").textContent = state.campaigns.length
+    ? `${state.campaigns.length} protocol-v2 campaign${state.campaigns.length === 1 ? "" : "s"}`
+    : "No campaigns match the selected ecosystems.";
+}
+
+async function loadCampaigns() {
+  const query = selectedQuery();
+  const body = await request(`/api/campaigns${query ? `?${query}` : ""}`);
+  state.campaigns = body.items || [];
+  renderCampaigns();
+}
+
+async function selectCampaign(campaign) {
+  state.selectedCampaign = await request(`/api/campaigns/${campaign.campaign_id}`);
+  renderCampaigns();
+  renderSelectedCampaign();
+  await loadLeaderboard();
+}
+
+function renderSelectedCampaign() {
+  const campaign = state.selectedCampaign;
+  $("#campaign-workspace").classList.remove("hidden");
+  $("#leaderboard-section").classList.remove("hidden");
+  $("#selected-title").textContent = campaign.presentation?.name || campaign.campaign_id;
+  $("#campaign-brief").textContent = campaign.brief;
+  const metadata = $("#campaign-metadata");
+  metadata.replaceChildren();
+  addDetail(metadata, "Campaign ID", campaign.campaign_id);
+  addDetail(metadata, "Ecosystems", campaign.ecosystem_ids.join(", "));
+  addDetail(metadata, "Submission mode", campaign.protocol.submission_mode);
+  addDetail(metadata, "Reward pool", money(campaign.reward_pool_usd));
+  addDetail(metadata, "Closes", new Date(campaign.closes_at).toLocaleString());
+  addDetail(metadata, "Max tweets / creator", campaign.max_tweets_per_creator);
+  const direct = !campaign.capabilities.requires_claim;
+  $("#claim-form").classList.toggle("hidden", direct);
+  $("#operation-title").textContent = direct ? "Submit published tweet" : "Commit draft before posting";
+  notice(
+    $("#claim-result"),
+    direct ? "This exclusive campaign uses direct protocol-v2 submission; no claim is needed." : "No claim created yet.",
+  );
+  if (state.claim?.campaign_id === campaign.campaign_id) refreshClaim();
+}
+
+async function checkEligibility() {
+  try {
+    const result = await request(
+      `/api/campaigns/${state.selectedCampaign.campaign_id}/eligibility/${requireCreator()}`,
     );
-  }
-  if (
-    qualification.required_self_stake_alpha !== undefined &&
-    qualification.required_self_stake_alpha !== null
-  ) {
-    statusRow(
-      dl,
-      "Self-stake",
-      `${qualification.self_stake_alpha} / ${qualification.required_self_stake_alpha} α required`,
+    const evidence = (result.eligible_ecosystems || [])
+      .map((item) => `${item.ecosystem_id}: ${item.eligible ? `eligible at rank ${item.rank}` : "not eligible"}`)
+      .join(" · ");
+    notice(
+      $("#eligibility-result"),
+      `${result.reason.replaceAll("_", " ")}${evidence ? ` · ${evidence}` : ""}`,
+      result.eligible_if_published_now ? "success" : "error",
     );
-  }
-  if (qualification.miner_hotkey) {
-    statusRow(dl, "Miner hotkey", truncateMiddle(qualification.miner_hotkey), {
-      mono: true,
-      title: qualification.miner_hotkey,
-    });
-  }
-  if (qualification.configured_owner_hotkey) {
-    statusRow(dl, "Owner hotkey", truncateMiddle(qualification.configured_owner_hotkey), {
-      mono: true,
-      title: qualification.configured_owner_hotkey,
-    });
-  }
-  if (qualification.lock_target_hotkey) {
-    statusRow(dl, "Lock target", truncateMiddle(qualification.lock_target_hotkey), {
-      mono: true,
-      title: qualification.lock_target_hotkey,
-    });
-  }
-  if (qualification.controlling_coldkey) {
-    statusRow(dl, "Controlling coldkey", truncateMiddle(qualification.controlling_coldkey), {
-      mono: true,
-      title: qualification.controlling_coldkey,
-    });
-  }
-  if (qualification.effective_block !== undefined) {
-    statusRow(
-      dl,
-      "Effective / checked block",
-      `${qualification.effective_block} / ${qualification.checked_block ?? "latest"}`,
-    );
+  } catch (error) {
+    notice($("#eligibility-result"), error.message, "error");
   }
 }
 
-function verificationStatus(status) {
-  if (status === "verification_pending") return "Pending validator verification";
-  if (status === "provisionally_passed") return "Passed (provisional)";
-  if (status === "provisionally_failed") return "Failed (provisional)";
-  if (status === "attributed") return "Attributed";
-  if (status === "rejected") return "Rejected";
-  if (status === "tweet_received") return "Waiting for chain commitment";
-  return status;
+async function createClaim(event) {
+  event.preventDefault();
+  try {
+    const key = idempotencyKey("claim");
+    notice($("#claim-result"), "Committing the private draft on chain…");
+    const claim = await request("/api/claims", {
+      method: "POST",
+      headers: { "Idempotency-Key": key },
+      body: JSON.stringify({
+        campaign_id: state.selectedCampaign.campaign_id,
+        creator_x_id: requireCreator(),
+        draft: $("#draft").value,
+        external_id: key,
+      }),
+    });
+    state.claim = claim;
+    localStorage.setItem("bx-reference-claim", JSON.stringify(claim));
+    renderClaim(claim);
+  } catch (error) {
+    notice($("#claim-result"), error.message, "error");
+  }
 }
 
-function renderVerifications(submissions) {
-  if (!submissions.length) {
-    verificationRows.innerHTML = '<tr><td colspan="6">No tweet submissions yet.</td></tr>';
+function renderClaim(claim) {
+  const usable = claim.usability?.safe_to_post;
+  const text = usable
+    ? `Safe to post. Claim ${claim.claim_id} is finalized and active.`
+    : `Claim ${claim.claim_id}: ${claim.commitment?.status || claim.usability?.status}. Waiting before you post.`;
+  notice($("#claim-result"), text, usable ? "success" : "neutral");
+}
+
+async function refreshClaim() {
+  if (!state.claim?.claim_id) return;
+  try {
+    state.claim = await request(`/api/claims/${state.claim.claim_id}`);
+    localStorage.setItem("bx-reference-claim", JSON.stringify(state.claim));
+    renderClaim(state.claim);
+  } catch (error) {
+    notice($("#claim-result"), error.message, "error");
+  }
+}
+
+function normalizeTweetId(value) {
+  const match = value.trim().match(/(?:status\/)?(\d{5,})/);
+  if (!match) throw new Error("Enter a valid tweet URL or numeric tweet ID.");
+  return match[1];
+}
+
+async function createSubmission(event) {
+  event.preventDefault();
+  try {
+    const direct = !state.selectedCampaign.capabilities.requires_claim;
+    if (!direct && !state.claim?.usability?.safe_to_post) {
+      throw new Error("Wait for a safe-to-post claim before submitting your tweet.");
+    }
+    const key = idempotencyKey("submission");
+    notice($("#submission-result"), "Saving the tweet for chain commitment…");
+    const submission = await request("/api/submissions", {
+      method: "POST",
+      headers: { "Idempotency-Key": key },
+      body: JSON.stringify({
+        campaign_id: state.selectedCampaign.campaign_id,
+        tweet_id: normalizeTweetId($("#tweet-id").value),
+        claim_id: direct ? null : state.claim.claim_id,
+        creator_x_id: requireCreator(),
+        external_id: key,
+      }),
+    });
+    notice(
+      $("#submission-result"),
+      `Submission ${submission.submission_id}: ${submission.status.replaceAll("_", " ")}.`,
+      "success",
+    );
+    await loadSubmissions();
+  } catch (error) {
+    notice($("#submission-result"), error.message, "error");
+  }
+}
+
+function tableCell(value) {
+  const cell = document.createElement("td");
+  if (value instanceof Node) cell.append(value);
+  else cell.textContent = value ?? "—";
+  return cell;
+}
+
+function renderTableMessage(selector, message) {
+  const row = document.createElement("tr");
+  const cell = tableCell(message);
+  cell.colSpan = 6;
+  row.append(cell);
+  $(selector).replaceChildren(row);
+}
+
+function renderSubmissions(items) {
+  const rows = $("#submission-rows");
+  if (!items.length) {
+    rows.innerHTML = '<tr><td colspan="6">No submissions yet.</td></tr>';
     return;
   }
-  verificationRows.replaceChildren(...submissions.map((submission) => {
+  rows.replaceChildren(...items.map((item) => {
     const row = document.createElement("tr");
-    const tweet = document.createElement("a");
-    tweet.href = `https://x.com/i/status/${submission.tweet_id}`;
-    tweet.target = "_blank";
-    tweet.rel = "noopener noreferrer";
-    tweet.textContent = submission.tweet_id;
-    const score = submission.score == null ? "—" : Number(submission.score).toFixed(4);
-    const metrics = submission.failure_reason ||
-      `${Number(submission.views || 0).toLocaleString()} views · ${Number(submission.likes || 0).toLocaleString()} likes · ${Number(submission.retweets || 0).toLocaleString()} reposts`;
-    const values = [tweet, submission.campaign_id,
-      new Date(Number(submission.created_ns) / 1e6).toLocaleString(),
-      verificationStatus(submission.status), score, metrics];
-    for (const value of values) {
-      const cell = document.createElement("td");
-      if (value instanceof Node) cell.appendChild(value);
-      else cell.textContent = value;
-      row.appendChild(cell);
-    }
-    row.dataset.status = submission.status;
+    const link = document.createElement("a");
+    link.href = `https://x.com/i/status/${item.tweet_id}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = item.tweet_id;
+    const reward = item.reward_recommendation;
+    row.append(
+      tableCell(link),
+      tableCell(item.campaign_id),
+      tableCell((item.status || "pending").replaceAll("_", " ")),
+      tableCell(item.evaluation?.score ?? item.score),
+      tableCell(reward?.status === "recommended" ? money(reward.total) : reward?.status || "Pending"),
+      tableCell(item.failure_reason || item.evaluation?.explanation || item.attribution?.reason || "—"),
+    );
     return row;
   }));
 }
 
-async function refreshVerifications() {
-  renderVerifications(await request("/api/submissions"));
-}
-
-function showMinerStatusError(message) {
-  const dl = document.querySelector("#miner-status");
-  dl.replaceChildren();
-  statusRow(dl, "Status", message);
-}
-
-function selectedCampaign() {
-  return campaigns.find((item) => item.access.campaign_id === campaignSelect.value);
-}
-
-function renderCampaign() {
-  const campaign = selectedCampaign();
-  const stats = campaign?.stats;
-  campaignDetails.textContent = campaign
-    ? `${campaign.display}\nPools: ${campaign.pools.join(", ")}\nReward pool: $${campaign.reward_pool_usd}`
-      + (stats
-        ? `\nMatched tweets: ${stats.matched_tweets}\nViews: ${stats.total_views.toLocaleString()}`
-          + `\nEngagements: ${stats.total_engagements.toLocaleString()} (${stats.engagement_rate}%)`
-        : "")
-    : "";
-}
-
-async function load() {
+async function loadSubmissions() {
   try {
-    const [health, qualification] = await Promise.all([request("/health"), request("/api/qualification")]);
-    renderMinerStatus(health, qualification);
-    campaigns = await request("/api/campaigns");
-    await refreshVerifications();
-    const buildCampaignOptions = () => campaigns.map((item) => {
-      const option = document.createElement("option");
-      option.value = item.access.campaign_id;
-      option.textContent = item.access.campaign_id;
-      return option;
-    });
-    campaignSelect.replaceChildren(...buildCampaignOptions());
-    resumeCampaignSelect.replaceChildren(...buildCampaignOptions());
-    renderCampaign();
-    if (operation) {
-      campaignSelect.value = operation.campaignId;
-      resumeCampaignSelect.value = operation.campaignId;
-      renderCampaign();
-      show(claimResult, claimLabel(operation.claimId, operation.claimStatus));
-      if (operation.submissionId) {
-        show(submissionResult, submissionLabel(operation.submissionId, operation.submissionStatus));
-      }
-      await refreshOperation();
-    }
+    const query = new URLSearchParams();
+    if (/^\d+$/.test(creatorId())) query.set("creator_x_id", creatorId());
+    const result = await request(`/api/submissions${query.size ? `?${query}` : ""}`);
+    renderSubmissions(result.items || []);
   } catch (error) {
-    showMinerStatusError(error.message);
+    renderTableMessage("#submission-rows", error.message);
   }
 }
 
-async function refreshOperation() {
-  if (!operation) return;
-  const claim = await request(`/api/claims/${operation.claimId}`);
-  operation.claimStatus = claim.status;
-  show(claimResult, claimLabel(operation.claimId, claim.status));
-  if (operation.submissionId) {
-    const submission = await request(`/api/submissions/${operation.submissionId}`);
-    operation.submissionStatus = submission.status;
-    show(submissionResult, submissionLabel(operation.submissionId, submission.status));
-  }
-  localStorage.setItem("bitcastMinerOperation", JSON.stringify(operation));
-}
-
-campaignSelect.addEventListener("change", renderCampaign);
-
-document.querySelector("#claim-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  show(claimResult, "Submitting and waiting for finalized chain commitment…");
+async function loadLeaderboard() {
   try {
-    const result = await request("/api/claims", { method: "POST", body: JSON.stringify({
-      campaign_id: campaignSelect.value,
-      creator_x_id: document.querySelector("#creator-x-id").value,
-      draft: document.querySelector("#draft").value,
-    }) });
-    operation = { campaignId: campaignSelect.value, claimId: result.claim_id, claimStatus: result.status };
-    localStorage.setItem("bitcastMinerOperation", JSON.stringify(operation));
-    show(claimResult, claimLabel(result.claim_id, result.status));
-  } catch (error) { show(claimResult, error.message, false); }
-});
-
-document.querySelector("#resume-claim-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const claimId = document.querySelector("#resume-claim-id").value.trim().toLowerCase();
-  if (!/^[0-9a-f]{32}$/.test(claimId)) {
-    show(resumeClaimResult, "Enter a valid 32-character claim id.", false);
-    return;
-  }
-  show(resumeClaimResult, "Looking up claim…");
-  try {
-    const claim = await request(`/api/claims/${claimId}`);
-    const campaignId = claim.campaign_id || resumeCampaignSelect.value;
-    campaignSelect.value = campaignId;
-    resumeCampaignSelect.value = campaignId;
-    renderCampaign();
-    operation = { campaignId, claimId, claimStatus: claim.status };
-    localStorage.setItem("bitcastMinerOperation", JSON.stringify(operation));
-    show(resumeClaimResult, claimLabel(claimId, claim.status));
-    show(claimResult, claimLabel(claimId, claim.status));
-  } catch (error) { show(resumeClaimResult, error.message, false); }
-});
-
-document.querySelector("#submission-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!operation || operation.claimStatus !== "safe_to_post") {
-    show(submissionResult, "Commit the draft and wait for safe_to_post first.", false);
-    return;
-  }
-  const match = document.querySelector("#tweet").value.trim().match(/(?:status\/)?([0-9]+)(?:\?.*)?$/);
-  if (!match) { show(submissionResult, "Enter a valid tweet URL or numeric ID.", false); return; }
-  show(submissionResult, "Submitting and waiting for finalized chain commitment…");
-  try {
-    const result = await request("/api/submissions", { method: "POST", body: JSON.stringify({
-      campaign_id: operation.campaignId, tweet_id: match[1], claim_id: operation.claimId,
-    }) });
-    operation.submissionId = result.submission_id;
-    operation.submissionStatus = result.status;
-    localStorage.setItem("bitcastMinerOperation", JSON.stringify(operation));
-    const message = submissionLabel(result.submission_id, result.status);
-    show(
-      submissionResult,
-      result.status === "verification_pending"
-        ? `${message}. Validators will now fetch and verify it.`
-        : message,
+    const query = selectedQuery();
+    const result = await request(
+      `/api/campaigns/${state.selectedCampaign.campaign_id}/tweets${query ? `?${query}` : ""}`,
     );
-    await refreshVerifications();
-  } catch (error) { show(submissionResult, error.message, false); }
-});
+    const items = result.tweets || result.items || [];
+    const rows = $("#leaderboard-rows");
+    if (!items.length) {
+      rows.innerHTML = '<tr><td colspan="6">No evaluated tweets yet.</td></tr>';
+      return;
+    }
+    rows.replaceChildren(...items.map((item) => {
+      const row = document.createElement("tr");
+      const link = document.createElement("a");
+      link.href = item.tweet_url || `https://x.com/i/status/${item.tweet_id}`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = short(item.tweet_id, 6);
+      row.append(
+        tableCell(item.author_username ? `@${item.author_username}` : "—"),
+        tableCell(link),
+        tableCell(item.score ?? "—"),
+        tableCell(number(item.views)),
+        tableCell(number(item.engagements || (
+          Number(item.likes || 0)
+          + Number(item.retweets || 0)
+          + Number(item.replies || 0)
+          + Number(item.quotes || 0)
+        ))),
+        tableCell(item.reward_recommendation?.status === "recommended"
+          ? money(item.reward_recommendation.total) : "—"),
+      );
+      return row;
+    }));
+  } catch (error) {
+    renderTableMessage("#leaderboard-rows", error.message);
+  }
+}
 
-load();
-setInterval(() => refreshOperation().catch(() => {}), 5000);
-setInterval(() => refreshVerifications().catch(() => {}), 30000);
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") refreshVerifications().catch(() => {});
+async function boot() {
+  $("#creator-x-id").value = localStorage.getItem("bx-reference-creator") || "";
+  try {
+    const [status, ecosystems] = await Promise.all([
+      request("/api/status"),
+      request("/api/ecosystems"),
+    ]);
+    renderStatus(status);
+    state.ecosystems = ecosystems.items || [];
+    state.enabledEcosystems = new Set(state.ecosystems.map((item) => item.ecosystem_id));
+    renderEcosystems();
+    await Promise.all([loadCampaigns(), loadSubmissions()]);
+  } catch (error) {
+    $("#node-badge").textContent = error.message;
+    $("#node-badge").className = "status-badge error";
+    $("#campaign-message").textContent = error.message;
+  }
+}
+
+$("#creator-x-id").addEventListener("change", () => {
+  if (/^\d+$/.test(creatorId())) localStorage.setItem("bx-reference-creator", creatorId());
 });
+$("#check-eligibility").addEventListener("click", checkEligibility);
+$("#claim-form").addEventListener("submit", createClaim);
+$("#submission-form").addEventListener("submit", createSubmission);
+$("#refresh-campaign").addEventListener("click", async () => {
+  await selectCampaign(state.selectedCampaign);
+  await refreshClaim();
+});
+$("#refresh-submissions").addEventListener("click", loadSubmissions);
+setInterval(async () => {
+  await refreshClaim();
+  await loadSubmissions();
+}, 15000);
+
+boot();
