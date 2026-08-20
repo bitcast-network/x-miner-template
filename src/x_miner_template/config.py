@@ -1,11 +1,11 @@
-"""Application-specific settings layered on the Bitcast X protocol settings."""
+"""Configuration for the reference miner product."""
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class WebSettings(BaseSettings):
-    """Environment configuration owned by the web template."""
+class Settings(BaseSettings):
+    """Keep node and optional demo credentials in server runtime configuration."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -14,10 +14,10 @@ class WebSettings(BaseSettings):
         frozen=True,
     )
 
-    force_commit_timeout_seconds: float = Field(default=90.0, gt=0, le=300)
-    results_api_url: str = "https://bitcast-api.bitcast.network"
-    results_poll_seconds: float = Field(default=30.0, ge=5.0, le=300.0)
-    internal_api_token: SecretStr = Field(
-        min_length=32,
-        description="Bearer token required by every creator-operation API route",
-    )
+    host: str = "0.0.0.0"  # noqa: S104 - container web service
+    port: int = Field(default=8080, ge=1, le=65_535)
+    node_url: str = "http://127.0.0.1:8095"
+    node_token: SecretStr = Field(min_length=64)
+    request_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    web_username: str = Field(default="bitcast", min_length=1, max_length=64)
+    web_password: SecretStr | None = Field(default=None, min_length=16)

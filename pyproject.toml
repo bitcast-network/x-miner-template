@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "x-miner-template"
-version = "0.1.0"
-description = "Minimal web miner for the Bitcast X v3 protocol"
+version = "1.0.0"
+description = "Reference creator product for the Bitcast X miner application API"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "bitcast-x @ git+https://github.com/bitcast-network/bitcast-x.git@main",
     "fastapi==0.141.1",
     "httpx==0.28.1",
     "pydantic==2.13.4",
@@ -53,7 +52,3 @@ python_version = "3.12"
 strict = true
 mypy_path = "src"
 packages = ["x_miner_template"]
-
-[[tool.mypy.overrides]]
-module = ["bittensor", "bittensor.*", "bitcast_x", "bitcast_x.*"]
-ignore_missing_imports = true
