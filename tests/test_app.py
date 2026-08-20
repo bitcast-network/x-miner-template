@@ -127,6 +127,41 @@ def test_claim_and_submission_forward_idempotency_without_exposing_node_token() 
     assert NODE_TOKEN not in str(node.requests)
 
 
+def test_recovery_filters_are_forwarded_without_changing_identifiers() -> None:
+    node = Node()
+    web = TestClient(create_app(settings(), lambda: node))
+
+    web.get(
+        "/api/claims?campaign_id=campaign&creator_x_id=123&external_id=claim-ref&ecosystem_id=tao"
+    )
+    web.get(
+        "/api/submissions?campaign_id=campaign&creator_x_id=123&tweet_id=999"
+        "&external_id=submission-ref&ecosystem_id=tao"
+    )
+
+    assert node.requests[0] == {
+        "method": "GET",
+        "path": "/api/v1/claims",
+        "params": [
+            ("ecosystem_id", "tao"),
+            ("campaign_id", "campaign"),
+            ("creator_x_id", "123"),
+            ("external_id", "claim-ref"),
+        ],
+    }
+    assert node.requests[1] == {
+        "method": "GET",
+        "path": "/api/v1/submissions",
+        "params": [
+            ("ecosystem_id", "tao"),
+            ("campaign_id", "campaign"),
+            ("creator_x_id", "123"),
+            ("tweet_id", "999"),
+            ("external_id", "submission-ref"),
+        ],
+    }
+
+
 async def test_node_client_keeps_bearer_server_side_and_preserves_errors() -> None:
     requests: list[httpx.Request] = []
 

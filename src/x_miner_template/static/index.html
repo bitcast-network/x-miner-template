@@ -76,6 +76,7 @@
             </form>
             <button id="recover-claim" class="button secondary" type="button">Recover latest claim</button>
             <div id="claim-result" class="notice neutral">No claim created yet.</div>
+            <dl id="claim-details" class="detail-list operation-details hidden"></dl>
 
             <form id="submission-form">
               <label>
@@ -105,6 +106,16 @@
             <tbody id="submission-rows"><tr><td colspan="6">No submissions yet.</td></tr></tbody>
           </table>
         </div>
+        <article id="submission-detail" class="panel submission-detail hidden" aria-live="polite">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">COMPLETE RESULT</p>
+              <h3 id="submission-detail-title">Submission details</h3>
+            </div>
+            <button id="close-submission-detail" class="button secondary" type="button">Close</button>
+          </div>
+          <div id="submission-detail-content" class="result-groups"></div>
+        </article>
       </section>
 
       <section id="leaderboard-section" class="workspace hidden">

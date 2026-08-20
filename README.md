@@ -14,7 +14,8 @@ The product can:
 - create idempotent claims and wait for `safe_to_post`;
 - recover claims after browser, product or node downtime;
 - submit preclaim or direct-mode tweets idempotently;
-- show local commitment state plus validator evaluation, attribution, metrics and feedback;
+- show both claim and submission commitment proofs plus the complete validator
+  decision, evaluation, attribution, score breakdown, metrics and feedback;
 - show campaign tweets and owner-private total USD reward recommendations.
 
 Campaign publishing remains centralized in Bitcast. Creator payments remain the miner product's

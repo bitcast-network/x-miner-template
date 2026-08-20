@@ -157,6 +157,7 @@ def create_app(
         client: Client,
         campaign_id: str | None = None,
         creator_x_id: str | None = None,
+        external_id: str | None = None,
         ecosystem_id: EcosystemFilter = None,
     ) -> dict[str, Any]:
         params = [("ecosystem_id", item) for item in ecosystem_id or []]
@@ -164,6 +165,8 @@ def create_app(
             params.append(("campaign_id", campaign_id))
         if creator_x_id:
             params.append(("creator_x_id", creator_x_id))
+        if external_id:
+            params.append(("external_id", external_id))
         result: dict[str, Any] = await client.request("GET", "/api/v1/claims", params=params)
         return result
 
@@ -191,6 +194,8 @@ def create_app(
         client: Client,
         campaign_id: str | None = None,
         creator_x_id: str | None = None,
+        tweet_id: str | None = None,
+        external_id: str | None = None,
         ecosystem_id: EcosystemFilter = None,
     ) -> dict[str, Any]:
         params = [("ecosystem_id", item) for item in ecosystem_id or []]
@@ -198,6 +203,10 @@ def create_app(
             params.append(("campaign_id", campaign_id))
         if creator_x_id:
             params.append(("creator_x_id", creator_x_id))
+        if tweet_id:
+            params.append(("tweet_id", tweet_id))
+        if external_id:
+            params.append(("external_id", external_id))
         result: dict[str, Any] = await client.request("GET", "/api/v1/submissions", params=params)
         return result
 

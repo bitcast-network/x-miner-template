@@ -214,6 +214,18 @@ textarea { resize: vertical; line-height: 1.55; }
 .detail-list { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; margin: 22px 0; font-size: 13px; }
 .detail-list dt { color: var(--muted); }
 .detail-list dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.operation-details { padding: 14px; margin: 12px 0 18px; border: 1px solid var(--line); border-radius: 10px; background: #111512; }
+
+.section-heading.compact { align-items: center; margin-bottom: 18px; }
+.section-heading.compact h3 { margin: 0; }
+.submission-detail { margin-top: 20px; }
+.result-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.result-group { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #111512; }
+.result-group h4 { margin: 0 0 12px; font-size: 14px; }
+.result-group .detail-list { margin: 0; }
+.result-group.full-width { grid-column: 1 / -1; }
+.result-json { margin: 12px 0 0; padding: 12px; overflow-x: auto; white-space: pre-wrap; color: #cbd3cb; background: #090c0a; border-radius: 9px; font-size: 11px; line-height: 1.5; }
+.table-action { padding: 7px 10px; font-size: 11px; }
 
 .button {
   border: 0;
@@ -247,7 +259,7 @@ footer { color: #707a70; width: min(1180px, 90vw); margin: 45px auto; font-size:
   .topbar { padding: 0 5vw; }
   .status-badge { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hero { padding-top: 60px; }
-  .qualification, .campaign-grid, .two-column { grid-template-columns: 1fr; }
+  .qualification, .campaign-grid, .two-column, .result-groups { grid-template-columns: 1fr; }
   .qualification div { border-right: 0; border-bottom: 1px solid var(--line); }
   .qualification div:last-child { border-bottom: 0; }
   .workspace { padding: 24px 18px; }

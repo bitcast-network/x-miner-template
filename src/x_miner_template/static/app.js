@@ -5,6 +5,7 @@ const state = {
   ecosystems: [],
   enabledEcosystems: new Set(),
   selectedCampaign: null,
+  selectedSubmissionId: null,
   claim: JSON.parse(localStorage.getItem("bx-reference-claim") || "null"),
 };
 
@@ -57,6 +58,18 @@ function money(value) {
 
 function number(value) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
+function dateTime(value) {
+  return value ? new Date(value).toLocaleString() : "—";
+}
+
+function display(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
 function short(value, length = 8) {
@@ -165,16 +178,31 @@ function renderSelectedCampaign(campaignChanged = false) {
   const metadata = $("#campaign-metadata");
   metadata.replaceChildren();
   addDetail(metadata, "Campaign ID", campaign.campaign_id);
+  addDetail(metadata, "Snapshot", campaign.campaign_snapshot_id);
   addDetail(metadata, "Ecosystems", campaign.ecosystem_ids.join(", "));
+  addDetail(metadata, "Access", campaign.access?.mode);
   addDetail(metadata, "Submission mode", campaign.protocol.submission_mode);
+  addDetail(metadata, "Opens", dateTime(campaign.opens_at));
+  addDetail(metadata, "Closes", dateTime(campaign.closes_at));
+  addDetail(metadata, "Scoring close block", campaign.scoring_close_block);
   addDetail(metadata, "Reward pool", money(campaign.reward_pool_usd));
-  addDetail(metadata, "Closes", new Date(campaign.closes_at).toLocaleString());
   addDetail(metadata, "Max tweets / creator", campaign.max_tweets_per_creator);
+  addDetail(metadata, "Required terms", display(campaign.required_terms));
+  addDetail(metadata, "Inclusion keywords", display(campaign.inclusion_keywords));
+  addDetail(metadata, "Language", campaign.language);
+  addDetail(metadata, "Tag", campaign.tag);
+  addDetail(metadata, "Quoted tweet", campaign.quoted_tweet_id);
+  addDetail(metadata, "Matched tweets", campaign.stats?.matched_tweets);
+  addDetail(metadata, "Total views", campaign.stats?.total_views);
+  addDetail(metadata, "Total engagements", campaign.stats?.total_engagements);
+  addDetail(metadata, "Data updated", dateTime(campaign.stats?.data_updated_at));
   const direct = !campaign.capabilities.requires_claim;
   $("#claim-form").classList.toggle("hidden", direct);
   $("#recover-claim").classList.toggle("hidden", direct);
   $("#operation-title").textContent = direct ? "Submit published tweet" : "Commit draft before posting";
   if (campaignChanged) {
+    state.selectedSubmissionId = null;
+    $("#submission-detail").classList.add("hidden");
     notice(
       $("#eligibility-result"),
       "Enter your X user ID, then check eligibility.",
@@ -186,6 +214,7 @@ function renderSelectedCampaign(campaignChanged = false) {
     $("#claim-result"),
     direct ? "This exclusive campaign uses direct protocol-v2 submission; no claim is needed." : "No claim created yet.",
   );
+  $("#claim-details").classList.add("hidden");
   if (
     state.claim?.campaign_id === campaign.campaign_id
     && state.claim?.creator_x_id === creatorId()
@@ -202,9 +231,12 @@ async function checkEligibility() {
     const evidence = (result.eligible_ecosystems || [])
       .map((item) => `${item.ecosystem_id}: ${item.eligible ? `eligible at rank ${item.rank}` : "not eligible"}`)
       .join(" · ");
+    const badges = (result.badges || []).map((item) => item.label).join(", ");
     notice(
       $("#eligibility-result"),
-      `${result.reason.replaceAll("_", " ")}${evidence ? ` · ${evidence}` : ""}`,
+      `${result.reason.replaceAll("_", " ")}${evidence ? ` · ${evidence}` : ""}`
+        + `${badges ? ` · badges: ${badges}` : ""}`
+        + `${result.checked_at ? ` · checked ${dateTime(result.checked_at)}` : ""}`,
       result.eligible_if_published_now ? "success" : "error",
     );
   } catch (error) {
@@ -236,6 +268,22 @@ async function createClaim(event) {
 }
 
 function renderClaim(claim) {
+  const details = $("#claim-details");
+  details.replaceChildren();
+  addDetail(details, "Claim ID", claim.claim_id);
+  addDetail(details, "External ID", claim.external_id);
+  addDetail(details, "Snapshot", claim.campaign_snapshot_id);
+  addDetail(details, "Ecosystems", display(claim.ecosystem_ids));
+  addDetail(details, "Commitment", claim.commitment?.status);
+  addDetail(details, "Batch sequence", claim.commitment?.batch_sequence);
+  addDetail(details, "Batch hash", claim.commitment?.batch_hash);
+  addDetail(details, "Finalized block", claim.commitment?.block);
+  addDetail(details, "Block hash", claim.commitment?.block_hash);
+  addDetail(details, "Extrinsic index", claim.commitment?.extrinsic_index);
+  addDetail(details, "Usability", claim.usability?.status);
+  addDetail(details, "Created", dateTime(claim.created_at));
+  addDetail(details, "Updated", dateTime(claim.updated_at));
+  details.classList.remove("hidden");
   const status = claim.usability?.status;
   if (claim.usability?.safe_to_post) {
     notice(
@@ -335,6 +383,7 @@ async function createSubmission(event) {
       "success",
     );
     await loadSubmissions();
+    await loadSubmissionDetail(submission.submission_id);
   } catch (error) {
     notice($("#submission-result"), error.message, "error");
   }
@@ -369,13 +418,22 @@ function renderSubmissions(items) {
     link.rel = "noopener noreferrer";
     link.textContent = item.tweet_id;
     const reward = item.reward_recommendation;
+    const result = document.createElement("div");
+    const summary = document.createElement("div");
+    summary.textContent = item.failure_reason || item.evaluation?.explanation || item.attribution?.reason || "—";
+    const view = document.createElement("button");
+    view.type = "button";
+    view.className = "button secondary table-action";
+    view.textContent = "View complete result";
+    view.addEventListener("click", () => loadSubmissionDetail(item.submission_id));
+    result.append(summary, view);
     row.append(
       tableCell(link),
       tableCell(item.campaign_id),
       tableCell((item.status || "pending").replaceAll("_", " ")),
       tableCell(item.evaluation?.score ?? item.score),
       tableCell(reward?.status === "recommended" ? money(reward.total) : reward?.status || "Pending"),
-      tableCell(item.failure_reason || item.evaluation?.explanation || item.attribution?.reason || "—"),
+      tableCell(result),
     );
     return row;
   }));
@@ -391,8 +449,102 @@ async function loadSubmissions() {
     query.set("creator_x_id", creatorId());
     const result = await request(`/api/submissions${query.size ? `?${query}` : ""}`);
     renderSubmissions(result.items || []);
+    if (state.selectedSubmissionId) await loadSubmissionDetail(state.selectedSubmissionId);
   } catch (error) {
     renderTableMessage("#submission-rows", error.message);
+  }
+}
+
+function resultGroup(title, entries, jsonValue = null) {
+  const group = document.createElement("section");
+  group.className = `result-group${jsonValue === null ? "" : " full-width"}`;
+  const heading = document.createElement("h4");
+  heading.textContent = title;
+  const list = document.createElement("dl");
+  list.className = "detail-list";
+  for (const [label, value] of entries) addDetail(list, label, display(value));
+  group.append(heading, list);
+  if (jsonValue !== null) {
+    const pre = document.createElement("pre");
+    pre.className = "result-json";
+    pre.textContent = JSON.stringify(jsonValue, null, 2);
+    group.append(pre);
+  }
+  return group;
+}
+
+function renderSubmissionDetail(item) {
+  state.selectedSubmissionId = item.submission_id;
+  $("#submission-detail-title").textContent = `Submission ${short(item.submission_id)}`;
+  const creator = item.creator || {};
+  const claimCommitment = item.claim_commitment || {};
+  const submissionCommitment = item.submission_commitment || {};
+  const decision = item.decision || {};
+  const evaluation = item.evaluation || {};
+  const attribution = item.attribution || {};
+  const reward = item.reward_recommendation || {};
+  const tweet = item.tweet || {};
+  const metrics = item.metrics || {};
+  $("#submission-detail-content").replaceChildren(
+    resultGroup("Receipt", [
+      ["Submission ID", item.submission_id], ["External ID", item.external_id],
+      ["Campaign", item.campaign_id], ["Snapshot", item.campaign_snapshot_id],
+      ["Ecosystems", item.ecosystem_ids], ["Tweet ID", item.tweet_id],
+      ["Claim ID", item.claim_id], ["Status", item.status],
+      ["Created", dateTime(item.created_at)], ["Updated", dateTime(item.updated_at)],
+    ]),
+    resultGroup("Creator", [
+      ["Submitted X ID", creator.submitted_x_id], ["Verified X ID", creator.verified_x_id],
+      ["Username", creator.username ? `@${creator.username}` : null],
+    ]),
+    resultGroup("Claim commitment", [
+      ["Status", claimCommitment.status], ["Batch sequence", claimCommitment.batch_sequence],
+      ["Batch hash", claimCommitment.batch_hash], ["Block", claimCommitment.block],
+      ["Block hash", claimCommitment.block_hash], ["Extrinsic", claimCommitment.extrinsic_index],
+    ]),
+    resultGroup("Submission commitment", [
+      ["Status", submissionCommitment.status], ["Batch sequence", submissionCommitment.batch_sequence],
+      ["Batch hash", submissionCommitment.batch_hash], ["Block", submissionCommitment.block],
+      ["Block hash", submissionCommitment.block_hash], ["Extrinsic", submissionCommitment.extrinsic_index],
+      ["Failure", submissionCommitment.failure_reason],
+    ]),
+    resultGroup("Validator decision", [
+      ["Authority", decision.authority], ["Validator", decision.source_validator_hotkey],
+      ["Status", decision.status], ["Observed", dateTime(decision.observed_at)],
+    ]),
+    resultGroup("Evaluation", [
+      ["Status", evaluation.status], ["Reason", evaluation.reason],
+      ["Explanation", evaluation.explanation || item.failure_reason], ["Score", evaluation.score ?? item.score],
+      ["Baseline score", evaluation.baseline_score ?? item.baseline_score],
+      ["Author influence", evaluation.author_influence ?? item.author_influence],
+    ]),
+    resultGroup("Attribution", [
+      ["Status", attribution.status], ["Reason", attribution.reason],
+      ["Winner match", attribution.winner_match_score], ["Runner-up match", attribution.runner_up_match_score],
+    ]),
+    resultGroup("Reward recommendation", [
+      ["Status", reward.status], ["Reason", reward.reason], ["Currency", reward.currency],
+      ["Total", reward.total === null || reward.total === undefined ? null : money(reward.total)],
+      ["Finality", reward.finality],
+    ]),
+    resultGroup("Tweet and metrics", [
+      ["URL", tweet.url], ["Content", tweet.content], ["Published", dateTime(tweet.published_at)],
+      ["Observed", dateTime(tweet.observed_at)], ["Views", metrics.views ?? item.views],
+      ["Likes", metrics.likes ?? item.likes], ["Retweets", metrics.retweets ?? item.retweets],
+      ["Replies", metrics.replies ?? item.replies], ["Quotes", metrics.quotes ?? item.quotes],
+      ["Bookmarks", metrics.bookmarks ?? item.bookmarks], ["Captured", dateTime(metrics.captured_at)],
+    ]),
+    resultGroup("Score breakdown", [], evaluation.score_breakdown || item.score_breakdown || []),
+  );
+  $("#submission-detail").classList.remove("hidden");
+  $("#submission-detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function loadSubmissionDetail(submissionId) {
+  try {
+    renderSubmissionDetail(await request(`/api/submissions/${submissionId}`));
+  } catch (error) {
+    notice($("#submission-result"), error.message, "error");
   }
 }
 
@@ -416,7 +568,9 @@ async function loadLeaderboard() {
       link.rel = "noopener noreferrer";
       link.textContent = short(item.tweet_id, 6);
       row.append(
-        tableCell(item.author_username ? `@${item.author_username}` : "—"),
+        tableCell(item.author_username
+          ? `@${item.author_username}${item.belongs_to_requesting_miner ? " · yours" : ""}`
+          : (item.belongs_to_requesting_miner ? "Yours" : "—")),
         tableCell(link),
         tableCell(item.score ?? "—"),
         tableCell(number(item.views)),
@@ -475,6 +629,10 @@ $("#refresh-campaign").addEventListener("click", async () => {
   await refreshClaim();
 });
 $("#refresh-submissions").addEventListener("click", loadSubmissions);
+$("#close-submission-detail").addEventListener("click", () => {
+  state.selectedSubmissionId = null;
+  $("#submission-detail").classList.add("hidden");
+});
 setInterval(async () => {
   await refreshClaim();
   await loadSubmissions();
