@@ -149,13 +149,14 @@ async function loadCampaigns() {
 }
 
 async function selectCampaign(campaign) {
+  const campaignChanged = state.selectedCampaign?.campaign_id !== campaign.campaign_id;
   state.selectedCampaign = await request(`/api/campaigns/${campaign.campaign_id}`);
   renderCampaigns();
-  renderSelectedCampaign();
+  renderSelectedCampaign(campaignChanged);
   await loadLeaderboard();
 }
 
-function renderSelectedCampaign() {
+function renderSelectedCampaign(campaignChanged = false) {
   const campaign = state.selectedCampaign;
   $("#campaign-workspace").classList.remove("hidden");
   $("#leaderboard-section").classList.remove("hidden");
@@ -172,6 +173,14 @@ function renderSelectedCampaign() {
   const direct = !campaign.capabilities.requires_claim;
   $("#claim-form").classList.toggle("hidden", direct);
   $("#operation-title").textContent = direct ? "Submit published tweet" : "Commit draft before posting";
+  if (campaignChanged) {
+    notice(
+      $("#eligibility-result"),
+      "Enter your X user ID, then check eligibility.",
+    );
+    notice($("#submission-result"), "No tweet submitted yet.");
+    $("#tweet-id").value = "";
+  }
   notice(
     $("#claim-result"),
     direct ? "This exclusive campaign uses direct protocol-v2 submission; no claim is needed." : "No claim created yet.",
@@ -221,11 +230,36 @@ async function createClaim(event) {
 }
 
 function renderClaim(claim) {
-  const usable = claim.usability?.safe_to_post;
-  const text = usable
-    ? `Safe to post. Claim ${claim.claim_id} is finalized and active.`
-    : `Claim ${claim.claim_id}: ${claim.commitment?.status || claim.usability?.status}. Waiting before you post.`;
-  notice($("#claim-result"), text, usable ? "success" : "neutral");
+  const status = claim.usability?.status;
+  if (claim.usability?.safe_to_post) {
+    notice(
+      $("#claim-result"),
+      `Safe to post. Claim ${claim.claim_id} is finalized and active.`,
+      "success",
+    );
+    return;
+  }
+  if (status === "consumed") {
+    notice(
+      $("#claim-result"),
+      `Claim ${claim.claim_id} was consumed by submission ${claim.usability.consumed_by_submission_id}.`,
+      "success",
+    );
+    return;
+  }
+  if (status === "evicted") {
+    notice(
+      $("#claim-result"),
+      `Claim ${claim.claim_id} was evicted when claim ${claim.usability.evicted_by_claim_id} became active. Create a new claim before posting.`,
+      "error",
+    );
+    return;
+  }
+  notice(
+    $("#claim-result"),
+    `Claim ${claim.claim_id}: ${status || claim.commitment?.status || "pending"}. Waiting before you post.`,
+    status === "expired" ? "error" : "neutral",
+  );
 }
 
 async function refreshClaim() {
