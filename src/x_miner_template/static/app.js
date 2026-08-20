@@ -172,6 +172,7 @@ function renderSelectedCampaign(campaignChanged = false) {
   addDetail(metadata, "Max tweets / creator", campaign.max_tweets_per_creator);
   const direct = !campaign.capabilities.requires_claim;
   $("#claim-form").classList.toggle("hidden", direct);
+  $("#recover-claim").classList.toggle("hidden", direct);
   $("#operation-title").textContent = direct ? "Submit published tweet" : "Commit draft before posting";
   if (campaignChanged) {
     notice(
@@ -185,7 +186,12 @@ function renderSelectedCampaign(campaignChanged = false) {
     $("#claim-result"),
     direct ? "This exclusive campaign uses direct protocol-v2 submission; no claim is needed." : "No claim created yet.",
   );
-  if (state.claim?.campaign_id === campaign.campaign_id) refreshClaim();
+  if (
+    state.claim?.campaign_id === campaign.campaign_id
+    && state.claim?.creator_x_id === creatorId()
+  ) {
+    refreshClaim();
+  }
 }
 
 async function checkEligibility() {
@@ -273,6 +279,30 @@ async function refreshClaim() {
   }
 }
 
+async function recoverClaim() {
+  if (!state.selectedCampaign || !state.selectedCampaign.capabilities.requires_claim) return;
+  try {
+    const creator = requireCreator();
+    const query = new URLSearchParams({
+      campaign_id: state.selectedCampaign.campaign_id,
+      creator_x_id: creator,
+    });
+    const result = await request(`/api/claims?${query}`);
+    const claim = (result.items || [])[0];
+    if (!claim) {
+      state.claim = null;
+      localStorage.removeItem("bx-reference-claim");
+      notice($("#claim-result"), "No durable claim was found for this creator and campaign.");
+      return;
+    }
+    state.claim = claim;
+    localStorage.setItem("bx-reference-claim", JSON.stringify(claim));
+    renderClaim(claim);
+  } catch (error) {
+    notice($("#claim-result"), error.message, "error");
+  }
+}
+
 function normalizeTweetId(value) {
   const match = value.trim().match(/(?:status\/)?(\d{5,})/);
   if (!match) throw new Error("Enter a valid tweet URL or numeric tweet ID.");
@@ -353,8 +383,12 @@ function renderSubmissions(items) {
 
 async function loadSubmissions() {
   try {
+    if (!/^\d+$/.test(creatorId())) {
+      renderTableMessage("#submission-rows", "Enter your numeric X user ID to load submissions.");
+      return;
+    }
     const query = new URLSearchParams();
-    if (/^\d+$/.test(creatorId())) query.set("creator_x_id", creatorId());
+    query.set("creator_x_id", creatorId());
     const result = await request(`/api/submissions${query.size ? `?${query}` : ""}`);
     renderSubmissions(result.items || []);
   } catch (error) {
@@ -422,10 +456,19 @@ async function boot() {
 }
 
 $("#creator-x-id").addEventListener("change", () => {
-  if (/^\d+$/.test(creatorId())) localStorage.setItem("bx-reference-creator", creatorId());
+  if (/^\d+$/.test(creatorId())) {
+    localStorage.setItem("bx-reference-creator", creatorId());
+    if (state.claim?.creator_x_id !== creatorId()) {
+      state.claim = null;
+      localStorage.removeItem("bx-reference-claim");
+    }
+    recoverClaim();
+  }
+  loadSubmissions();
 });
 $("#check-eligibility").addEventListener("click", checkEligibility);
 $("#claim-form").addEventListener("submit", createClaim);
+$("#recover-claim").addEventListener("click", recoverClaim);
 $("#submission-form").addEventListener("submit", createSubmission);
 $("#refresh-campaign").addEventListener("click", async () => {
   await selectCampaign(state.selectedCampaign);
