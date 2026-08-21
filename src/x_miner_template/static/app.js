@@ -4,6 +4,7 @@ const state = {
   campaigns: [],
   ecosystems: [],
   enabledEcosystems: new Set(),
+  leaderboardEcosystem: null,
   selectedCampaign: null,
   selectedSubmissionId: null,
   claim: JSON.parse(localStorage.getItem("bx-reference-claim") || "null"),
@@ -43,6 +44,15 @@ function selectedQuery() {
   for (const ecosystem of [...state.enabledEcosystems].sort()) {
     query.append("ecosystem_id", ecosystem);
   }
+  return query.toString();
+}
+
+function leaderboardQuery() {
+  const query = new URLSearchParams({ limit: "100" });
+  const ecosystems = state.leaderboardEcosystem
+    ? [state.leaderboardEcosystem]
+    : [...state.enabledEcosystems].sort();
+  for (const ecosystem of ecosystems) query.append("ecosystem_id", ecosystem);
   return query.toString();
 }
 
@@ -110,14 +120,45 @@ function renderEcosystems() {
     input.type = "checkbox";
     input.checked = state.enabledEcosystems.has(ecosystem.ecosystem_id);
     input.addEventListener("change", async () => {
-      if (input.checked) state.enabledEcosystems.add(ecosystem.ecosystem_id);
-      else state.enabledEcosystems.delete(ecosystem.ecosystem_id);
-      await loadCampaigns();
+      if (input.checked) {
+        state.enabledEcosystems.add(ecosystem.ecosystem_id);
+      } else if (state.enabledEcosystems.size === 1) {
+        input.checked = true;
+        return;
+      } else {
+        state.enabledEcosystems.delete(ecosystem.ecosystem_id);
+      }
+      if (!state.enabledEcosystems.has(state.leaderboardEcosystem)) {
+        state.leaderboardEcosystem = null;
+      }
+      renderLeaderboardFilters();
+      await Promise.all([loadCampaigns(), loadEcosystemLeaderboard()]);
     });
     const span = document.createElement("span");
     span.textContent = ecosystem.name;
     label.append(input, span);
     target.append(label);
+  }
+}
+
+function renderLeaderboardFilters() {
+  const target = $("#leaderboard-filters");
+  target.replaceChildren();
+  const options = [
+    { ecosystem_id: null, name: "All enabled" },
+    ...state.ecosystems.filter((item) => state.enabledEcosystems.has(item.ecosystem_id)),
+  ];
+  for (const ecosystem of options) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `filter-button ${state.leaderboardEcosystem === ecosystem.ecosystem_id ? "active" : ""}`;
+    button.textContent = ecosystem.name;
+    button.addEventListener("click", async () => {
+      state.leaderboardEcosystem = ecosystem.ecosystem_id;
+      renderLeaderboardFilters();
+      await loadEcosystemLeaderboard();
+    });
+    target.append(button);
   }
 }
 
@@ -159,6 +200,17 @@ async function loadCampaigns() {
   const body = await request(`/api/campaigns${query ? `?${query}` : ""}`);
   state.campaigns = body.items || [];
   renderCampaigns();
+  if (state.selectedCampaign) {
+    const stillVisible = state.campaigns.some(
+      (campaign) => campaign.campaign_id === state.selectedCampaign.campaign_id,
+    );
+    if (stillVisible) await loadCampaignTweets();
+    else {
+      state.selectedCampaign = null;
+      $("#campaign-workspace").classList.add("hidden");
+      $("#campaign-tweets-section").classList.add("hidden");
+    }
+  }
 }
 
 async function selectCampaign(campaign) {
@@ -166,13 +218,14 @@ async function selectCampaign(campaign) {
   state.selectedCampaign = await request(`/api/campaigns/${campaign.campaign_id}`);
   renderCampaigns();
   renderSelectedCampaign(campaignChanged);
-  await loadLeaderboard();
+  await loadCampaignTweets();
+  $("#campaign-workspace").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderSelectedCampaign(campaignChanged = false) {
   const campaign = state.selectedCampaign;
   $("#campaign-workspace").classList.remove("hidden");
-  $("#leaderboard-section").classList.remove("hidden");
+  $("#campaign-tweets-section").classList.remove("hidden");
   $("#selected-title").textContent = campaign.presentation?.name || campaign.campaign_id;
   $("#campaign-brief").textContent = campaign.brief;
   const metadata = $("#campaign-metadata");
@@ -548,14 +601,14 @@ async function loadSubmissionDetail(submissionId) {
   }
 }
 
-async function loadLeaderboard() {
+async function loadCampaignTweets() {
   try {
     const query = selectedQuery();
     const result = await request(
       `/api/campaigns/${state.selectedCampaign.campaign_id}/tweets${query ? `?${query}` : ""}`,
     );
     const items = result.tweets || result.items || [];
-    const rows = $("#leaderboard-rows");
+    const rows = $("#campaign-tweet-rows");
     if (!items.length) {
       rows.innerHTML = '<tr><td colspan="6">No evaluated tweets yet.</td></tr>';
       return;
@@ -586,6 +639,46 @@ async function loadLeaderboard() {
       return row;
     }));
   } catch (error) {
+    renderTableMessage("#campaign-tweet-rows", error.message);
+  }
+}
+
+async function loadEcosystemLeaderboard() {
+  try {
+    const result = await request(`/api/leaderboard?${leaderboardQuery()}`);
+    const items = result.accounts || [];
+    $("#leaderboard-updated").textContent = result.data_updated_at
+      ? `Scores updated ${dateTime(result.data_updated_at)} · ${number(result.total_count)} creators`
+      : `${number(result.total_count)} creators`;
+    if (!items.length) {
+      renderTableMessage("#leaderboard-rows", "No scored creators in the selected ecosystems.");
+      return;
+    }
+    $("#leaderboard-rows").replaceChildren(...items.map((item) => {
+      const row = document.createElement("tr");
+      const creator = document.createElement("a");
+      creator.href = `https://x.com/${encodeURIComponent(item.username)}`;
+      creator.target = "_blank";
+      creator.rel = "noopener noreferrer";
+      creator.textContent = item.display_name
+        ? `${item.display_name} · @${item.username}`
+        : `@${item.username}`;
+      const scores = Object.entries(item.scores || {})
+        .sort((left, right) => Number(right[1]) - Number(left[1]))
+        .map(([ecosystem, score]) => `${ecosystem}: ${Number(score).toFixed(3)}`)
+        .join(" · ");
+      row.append(
+        tableCell(`#${item.rank}`),
+        tableCell(creator),
+        tableCell(scores),
+        tableCell(Number(item.score).toFixed(3)),
+        tableCell(item.followers === null || item.followers === undefined ? "—" : number(item.followers)),
+        tableCell(item.connected ? "Yes" : "No"),
+      );
+      return row;
+    }));
+  } catch (error) {
+    $("#leaderboard-updated").textContent = "Leaderboard unavailable";
     renderTableMessage("#leaderboard-rows", error.message);
   }
 }
@@ -601,7 +694,8 @@ async function boot() {
     state.ecosystems = ecosystems.items || [];
     state.enabledEcosystems = new Set(state.ecosystems.map((item) => item.ecosystem_id));
     renderEcosystems();
-    await Promise.all([loadCampaigns(), loadSubmissions()]);
+    renderLeaderboardFilters();
+    await Promise.all([loadEcosystemLeaderboard(), loadCampaigns(), loadSubmissions()]);
   } catch (error) {
     $("#node-badge").textContent = error.message;
     $("#node-badge").className = "status-badge error";

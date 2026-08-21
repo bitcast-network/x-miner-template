@@ -9,6 +9,7 @@ The product can:
 - show miner registration and qualification;
 - discover only authorized protocol-v2 campaigns;
 - filter campaigns and results across one or many enabled ecosystems;
+- browse a combined account leaderboard and filter it to one enabled ecosystem;
 - show campaign briefs, timing, pools, statistics and capabilities;
 - check creator eligibility and rank evidence using immutable numeric X IDs;
 - create idempotent claims and wait for `safe_to_post`;
@@ -16,7 +17,8 @@ The product can:
 - submit preclaim or direct-mode tweets idempotently;
 - show both claim and submission commitment proofs plus the complete validator
   decision, evaluation, attribution, score breakdown, metrics and feedback;
-- show campaign tweets and owner-private total USD reward recommendations.
+- open any campaign to its full brief and campaign tweets;
+- show owner-private total USD reward recommendations.
 
 Campaign publishing remains centralized in Bitcast. Creator payments remain the miner product's
 responsibility and are intentionally not represented as Bitcast payment state.

@@ -118,6 +118,14 @@ def create_app(
     ) -> dict[str, Any]:
         return await client.campaigns(ecosystem_id or [])
 
+    @app.get("/api/leaderboard")
+    async def leaderboard(
+        client: Client,
+        ecosystem_id: EcosystemFilter = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> dict[str, Any]:
+        return await client.leaderboard(ecosystem_id or [], limit)
+
     @app.get("/api/campaigns/{campaign_id}")
     async def campaign(campaign_id: str, client: Client) -> dict[str, Any]:
         return await client.campaign(campaign_id)

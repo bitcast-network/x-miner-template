@@ -31,6 +31,20 @@ class Node:
         self.requests.append({"operation": "campaigns", "ecosystems": ecosystems})
         return {"items": [{"campaign_id": "campaign", "ecosystem_ids": ["tao"]}]}
 
+    async def leaderboard(self, ecosystems: list[str], limit: int = 100) -> dict[str, Any]:
+        self.requests.append({"operation": "leaderboard", "ecosystems": ecosystems, "limit": limit})
+        return {
+            "ecosystem_ids": ecosystems,
+            "accounts": [
+                {
+                    "rank": 1,
+                    "username": "creator",
+                    "score": 0.9,
+                    "scores": {"tao": 0.9},
+                }
+            ],
+        }
+
     async def campaign(self, campaign_id: str) -> dict[str, Any]:
         return {"campaign_id": campaign_id}
 
@@ -67,6 +81,9 @@ def test_static_product_and_health_are_served() -> None:
     assert page.status_code == 200
     assert "Reference Miner" in page.text
     assert "reward recommendations" in page.text
+    assert "Top ecosystem voices" in page.text
+    assert "Campaign tweets" in page.text
+    assert 'id="leaderboard-filters"' in page.text
     assert web.get("/health").json()["service"] == "x-miner-template"
 
 
@@ -91,6 +108,21 @@ def test_status_and_repeated_ecosystem_filters_are_proxied() -> None:
     assert node.requests[0] == {
         "operation": "campaigns",
         "ecosystems": ["tao", "ai_agents"],
+    }
+
+
+def test_combined_leaderboard_filters_and_limit_are_proxied() -> None:
+    node = Node()
+    web = TestClient(create_app(settings(), lambda: node))
+
+    response = web.get("/api/leaderboard?ecosystem_id=tao&ecosystem_id=ai_agents&limit=25")
+
+    assert response.status_code == 200
+    assert response.json()["accounts"][0]["username"] == "creator"
+    assert node.requests[0] == {
+        "operation": "leaderboard",
+        "ecosystems": ["tao", "ai_agents"],
+        "limit": 25,
     }
 
 
@@ -184,6 +216,7 @@ async def test_node_client_keeps_bearer_server_side_and_preserves_errors() -> No
     )
     try:
         await client.campaigns(["tao", "ai_agents"])
+        await client.leaderboard(["tao"], 25)
         try:
             await client.request(
                 "POST",
@@ -205,4 +238,9 @@ async def test_node_client_keeps_bearer_server_side_and_preserves_errors() -> No
         ("ecosystem_id", "tao"),
         ("ecosystem_id", "ai_agents"),
     ]
-    assert requests[1].headers["Idempotency-Key"] == "claim-key-0001"
+    assert requests[1].url.path == "/api/v1/leaderboard"
+    assert requests[1].url.params.multi_items() == [
+        ("ecosystem_id", "tao"),
+        ("limit", "25"),
+    ]
+    assert requests[2].headers["Idempotency-Key"] == "claim-key-0001"

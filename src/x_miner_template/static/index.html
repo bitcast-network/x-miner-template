@@ -35,7 +35,27 @@
       <section class="workspace">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">01 · DISCOVER</p>
+            <p class="eyebrow">01 · LEADERBOARD</p>
+            <h2>Top ecosystem voices</h2>
+          </div>
+          <p id="leaderboard-updated" class="muted">Loading latest scores…</p>
+        </div>
+        <p class="muted">Combined across every ecosystem enabled on this site, or filtered to one ecosystem.</p>
+        <div id="leaderboard-filters" class="filters" aria-label="Leaderboard ecosystem filter"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Rank</th><th>Creator</th><th>Ecosystem scores</th><th>Score</th><th>Followers</th><th>Connected</th></tr>
+            </thead>
+            <tbody id="leaderboard-rows"><tr><td colspan="6">Loading leaderboard…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">02 · DISCOVER</p>
             <h2>Campaigns</h2>
           </div>
           <label class="creator-field">
@@ -51,7 +71,7 @@
       <section id="campaign-workspace" class="workspace hidden">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">02 · PARTICIPATE</p>
+            <p class="eyebrow">03 · PARTICIPATE</p>
             <h2 id="selected-title">Campaign</h2>
           </div>
           <button id="refresh-campaign" class="button secondary" type="button">Refresh</button>
@@ -93,7 +113,7 @@
       <section class="workspace">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">03 · TRACK</p>
+            <p class="eyebrow">04 · TRACK</p>
             <h2>Your submissions</h2>
           </div>
           <button id="refresh-submissions" class="button secondary" type="button">Refresh</button>
@@ -118,10 +138,10 @@
         </article>
       </section>
 
-      <section id="leaderboard-section" class="workspace hidden">
+      <section id="campaign-tweets-section" class="workspace hidden">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">04 · RESULTS</p>
+            <p class="eyebrow">05 · CAMPAIGN RESULTS</p>
             <h2>Campaign tweets</h2>
           </div>
         </div>
@@ -130,7 +150,7 @@
             <thead>
               <tr><th>Creator</th><th>Tweet</th><th>Score</th><th>Views</th><th>Engagements</th><th>Reward</th></tr>
             </thead>
-            <tbody id="leaderboard-rows"><tr><td colspan="6">Select a campaign.</td></tr></tbody>
+            <tbody id="campaign-tweet-rows"><tr><td colspan="6">Select a campaign.</td></tr></tbody>
           </table>
         </div>
       </section>

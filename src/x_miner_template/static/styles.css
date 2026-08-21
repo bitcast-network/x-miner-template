@@ -176,6 +176,21 @@ textarea { resize: vertical; line-height: 1.55; }
   transition: 120ms ease;
 }
 .filter-chip input:checked + span { color: var(--acid-ink); background: var(--acid); border-color: var(--acid); }
+.filter-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 13px;
+  color: var(--muted);
+  background: #111512;
+  cursor: pointer;
+  transition: 120ms ease;
+}
+.filter-button:hover { color: var(--ink); border-color: #526052; }
+.filter-button.active { color: var(--acid-ink); background: var(--acid); border-color: var(--acid); }
+.filter-button:focus-visible, .campaign-card:focus-visible, .button:focus-visible {
+  outline: 3px solid rgba(107, 220, 255, 0.55);
+  outline-offset: 2px;
+}
 
 .muted { color: var(--muted); font-size: 13px; }
 
