@@ -5,7 +5,7 @@ const state = {
   ecosystems: [],
   enabledEcosystems: new Set(),
   leaderboardEcosystem: null,
-  leaderboardLimit: 100,
+  leaderboardLimit: 25,
   leaderboardOffset: 0,
   leaderboardTotalCount: 0,
   leaderboardLoaded: false,
