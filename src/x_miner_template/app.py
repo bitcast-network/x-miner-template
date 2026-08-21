@@ -11,6 +11,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from x_miner_template.config import Settings
+from x_miner_template.draft_precheck import (
+    DraftPrechecker,
+    DraftPrecheckUnavailableError,
+    UnsupportedPromptVersionError,
+)
 from x_miner_template.node import MinerNodeClient, MinerNodeError
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -49,6 +54,8 @@ def _basic_credentials(header: str) -> tuple[str, str] | None:
 def create_app(
     settings: Settings,
     client_provider: Callable[[], MinerNodeClient],
+    *,
+    draft_prechecker: DraftPrechecker | None = None,
 ) -> FastAPI:
     """Build the reference product while keeping node credentials server-side."""
 
@@ -88,15 +95,26 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(
+            STATIC_DIR / "index.html",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/app.js", include_in_schema=False)
     async def javascript() -> FileResponse:
-        return FileResponse(STATIC_DIR / "app.js", media_type="text/javascript")
+        return FileResponse(
+            STATIC_DIR / "app.js",
+            media_type="text/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/styles.css", include_in_schema=False)
     async def stylesheet() -> FileResponse:
-        return FileResponse(STATIC_DIR / "styles.css", media_type="text/css")
+        return FileResponse(
+            STATIC_DIR / "styles.css",
+            media_type="text/css",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -118,6 +136,15 @@ def create_app(
     ) -> dict[str, Any]:
         return await client.campaigns(ecosystem_id or [])
 
+    @app.get("/api/leaderboard")
+    async def leaderboard(
+        client: Client,
+        ecosystem_id: EcosystemFilter = None,
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        return await client.leaderboard(ecosystem_id or [], limit, offset)
+
     @app.get("/api/campaigns/{campaign_id}")
     async def campaign(campaign_id: str, client: Client) -> dict[str, Any]:
         return await client.campaign(campaign_id)
@@ -138,25 +165,75 @@ def create_app(
     ) -> dict[str, Any]:
         return await client.campaign_tweets(campaign_id, ecosystem_id or [])
 
+    @app.get("/api/draft-precheck/status")
+    async def draft_precheck_status() -> dict[str, Any]:
+        enabled = draft_prechecker is not None
+        return {
+            "enabled": enabled,
+            "mode": "all_three_must_pass" if enabled else "disabled",
+            "checks": 3 if enabled else 0,
+            "provider": "openrouter" if enabled else None,
+        }
+
     @app.post("/api/claims")
     async def create_claim(
         body: ClaimRequest,
         client: Client,
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-    ) -> dict[str, Any]:
+    ) -> JSONResponse:
+        if draft_prechecker is not None:
+            campaign = await client.campaign(body.campaign_id)
+            try:
+                precheck = await draft_prechecker.evaluate(campaign, body.draft)
+            except UnsupportedPromptVersionError as error:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": {
+                            "code": "draft_precheck_version_unsupported",
+                            "message": str(error),
+                        }
+                    },
+                )
+            except (DraftPrecheckUnavailableError, ValueError) as error:
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": {
+                            "code": "draft_precheck_unavailable",
+                            "message": str(error),
+                        }
+                    },
+                    headers={"Retry-After": "15"},
+                )
+            if not precheck.meets_brief:
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "error": {
+                            "code": "draft_precheck_failed",
+                            "message": (
+                                "Tweet draft did not pass all three prechecks. "
+                                f"{precheck.failure_reason}"
+                            ),
+                        },
+                        "precheck": precheck.model_dump(mode="json"),
+                    },
+                )
         result: dict[str, Any] = await client.request(
             "POST",
             "/api/v1/claims",
             json=body.model_dump(mode="json", exclude_none=True),
             idempotency_key=idempotency_key,
         )
-        return result
+        return JSONResponse(content=result)
 
     @app.get("/api/claims")
     async def claims(
         client: Client,
         campaign_id: str | None = None,
         creator_x_id: str | None = None,
+        external_id: str | None = None,
         ecosystem_id: EcosystemFilter = None,
     ) -> dict[str, Any]:
         params = [("ecosystem_id", item) for item in ecosystem_id or []]
@@ -164,6 +241,8 @@ def create_app(
             params.append(("campaign_id", campaign_id))
         if creator_x_id:
             params.append(("creator_x_id", creator_x_id))
+        if external_id:
+            params.append(("external_id", external_id))
         result: dict[str, Any] = await client.request("GET", "/api/v1/claims", params=params)
         return result
 
@@ -191,6 +270,8 @@ def create_app(
         client: Client,
         campaign_id: str | None = None,
         creator_x_id: str | None = None,
+        tweet_id: str | None = None,
+        external_id: str | None = None,
         ecosystem_id: EcosystemFilter = None,
     ) -> dict[str, Any]:
         params = [("ecosystem_id", item) for item in ecosystem_id or []]
@@ -198,6 +279,10 @@ def create_app(
             params.append(("campaign_id", campaign_id))
         if creator_x_id:
             params.append(("creator_x_id", creator_x_id))
+        if tweet_id:
+            params.append(("tweet_id", tweet_id))
+        if external_id:
+            params.append(("external_id", external_id))
         result: dict[str, Any] = await client.request("GET", "/api/v1/submissions", params=params)
         return result
 

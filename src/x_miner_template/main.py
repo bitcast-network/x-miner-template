@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from x_miner_template.app import create_app
 from x_miner_template.config import Settings
+from x_miner_template.draft_precheck import OpenRouterDraftPrechecker
 from x_miner_template.node import MinerNodeClient
 
 
@@ -19,7 +20,21 @@ def build_app(settings: Settings) -> FastAPI:
     def get_client() -> MinerNodeClient:
         return runtime["client"]
 
-    app = create_app(settings, get_client)
+    api_key = (
+        settings.openrouter_api_key.get_secret_value()
+        if settings.openrouter_api_key is not None
+        else None
+    )
+    draft_prechecker = (
+        OpenRouterDraftPrechecker(
+            api_key=api_key,
+            model=settings.openrouter_model,
+            timeout=settings.openrouter_timeout_seconds,
+        )
+        if api_key
+        else None
+    )
+    app = create_app(settings, get_client, draft_prechecker=draft_prechecker)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -33,6 +48,8 @@ def build_app(settings: Settings) -> FastAPI:
             yield
         finally:
             await client.close()
+            if draft_prechecker is not None:
+                await draft_prechecker.close()
 
     app.router.lifespan_context = lifespan
     return app

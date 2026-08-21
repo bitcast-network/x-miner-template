@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="A complete reference product built on the Bitcast X miner API.">
     <title>Bitcast X · Reference Miner</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111111'/%3E%3Ctext x='32' y='41' text-anchor='middle' font-family='sans-serif' font-size='25' font-weight='700' fill='white'%3EBX%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/styles.css?v=20260821-precheck">
   </head>
   <body>
     <header class="topbar">
@@ -13,10 +14,15 @@
         <span class="brand-mark">BX</span>
         <span>Reference Miner</span>
       </a>
+      <nav class="topnav" aria-label="Primary navigation">
+        <button class="nav-link active" type="button" data-page="campaigns">Campaigns</button>
+        <button class="nav-link" type="button" data-page="leaderboard">Leaderboard</button>
+      </nav>
       <div id="node-badge" class="status-badge pending">Connecting to miner…</div>
     </header>
 
     <main>
+      <div id="campaigns-page" class="page">
       <section class="hero">
         <p class="eyebrow">BITCAST X · PROTOCOL V2</p>
         <h1>Mine creator campaigns across the ecosystems you choose.</h1>
@@ -71,9 +77,14 @@
                 <span>Exact unpublished tweet</span>
                 <textarea id="draft" maxlength="20000" rows="7" required></textarea>
               </label>
+              <p id="draft-precheck-status" class="precheck-status pending" aria-live="polite">
+                Checking tweet precheck configuration…
+              </p>
               <button class="button primary" type="submit">Create safe-to-post claim</button>
             </form>
+            <button id="recover-claim" class="button secondary" type="button">Recover latest claim</button>
             <div id="claim-result" class="notice neutral">No claim created yet.</div>
+            <dl id="claim-details" class="detail-list operation-details hidden"></dl>
 
             <form id="submission-form">
               <label>
@@ -103,12 +114,22 @@
             <tbody id="submission-rows"><tr><td colspan="6">No submissions yet.</td></tr></tbody>
           </table>
         </div>
+        <article id="submission-detail" class="panel submission-detail hidden" aria-live="polite">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">COMPLETE RESULT</p>
+              <h3 id="submission-detail-title">Submission details</h3>
+            </div>
+            <button id="close-submission-detail" class="button secondary" type="button">Close</button>
+          </div>
+          <div id="submission-detail-content" class="result-groups"></div>
+        </article>
       </section>
 
-      <section id="leaderboard-section" class="workspace hidden">
+      <section id="campaign-tweets-section" class="workspace hidden">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">04 · RESULTS</p>
+            <p class="eyebrow">04 · CAMPAIGN RESULTS</p>
             <h2>Campaign tweets</h2>
           </div>
         </div>
@@ -117,15 +138,56 @@
             <thead>
               <tr><th>Creator</th><th>Tweet</th><th>Score</th><th>Views</th><th>Engagements</th><th>Reward</th></tr>
             </thead>
-            <tbody id="leaderboard-rows"><tr><td colspan="6">Select a campaign.</td></tr></tbody>
+            <tbody id="campaign-tweet-rows"><tr><td colspan="6">Select a campaign.</td></tr></tbody>
           </table>
         </div>
+      </section>
+      </div>
+
+      <section id="leaderboard-page" class="workspace leaderboard-workspace page hidden">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ECOSYSTEM LEADERBOARD</p>
+            <h1 class="page-title">Top ecosystem voices</h1>
+          </div>
+          <p id="leaderboard-updated" class="muted">Loading latest scores…</p>
+        </div>
+        <p class="leaderboard-intro muted">
+          Combined across every ecosystem enabled on this site, or filtered to one ecosystem.
+          Browse every ranked creator using the page controls.
+        </p>
+        <div class="leaderboard-toolbar">
+          <div id="leaderboard-filters" class="filters" aria-label="Leaderboard ecosystem filter"></div>
+          <label class="page-size-field">
+            <span>Rows per page</span>
+            <select id="leaderboard-page-size">
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap leaderboard-table-wrap">
+          <table>
+            <thead>
+              <tr><th>Rank</th><th>Creator</th><th>Ecosystem scores</th><th>Score</th><th>Followers</th><th>Connected</th></tr>
+            </thead>
+            <tbody id="leaderboard-rows"><tr><td colspan="6">Loading leaderboard…</td></tr></tbody>
+          </table>
+        </div>
+        <nav class="pagination" aria-label="Leaderboard pages">
+          <button id="leaderboard-previous" class="button secondary" type="button">Previous</button>
+          <p id="leaderboard-page-status" class="muted" aria-live="polite">Page 1</p>
+          <button id="leaderboard-next" class="button secondary" type="button">Next</button>
+        </nav>
       </section>
     </main>
 
     <footer>
       Reference implementation only. Creator authentication, payments and compliance belong to the miner application.
     </footer>
-    <script src="/app.js" defer></script>
+    <script src="/app.js?v=20260821-precheck" defer></script>
   </body>
 </html>

@@ -21,3 +21,6 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = Field(default=30, gt=0, le=300)
     web_username: str = Field(default="bitcast", min_length=1, max_length=64)
     web_password: SecretStr | None = Field(default=None, min_length=16)
+    openrouter_api_key: SecretStr | None = Field(default=None, min_length=1)
+    openrouter_model: str = Field(default="qwen/qwen3-32b:nitro", min_length=1, max_length=256)
+    openrouter_timeout_seconds: float = Field(default=90, gt=0, le=300)
