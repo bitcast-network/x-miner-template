@@ -149,6 +149,14 @@ function renderDraftPrecheckStatus(status) {
   }
 }
 
+async function loadDraftPrecheckStatus() {
+  try {
+    return await request("/api/draft-precheck/status");
+  } catch {
+    return { enabled: false };
+  }
+}
+
 function renderEcosystems() {
   const target = $("#ecosystem-filters");
   target.replaceChildren();
@@ -759,7 +767,7 @@ async function boot() {
     const [status, ecosystems, draftPrecheck] = await Promise.all([
       request("/api/status"),
       request("/api/ecosystems"),
-      request("/api/draft-precheck/status"),
+      loadDraftPrecheckStatus(),
     ]);
     renderStatus(status);
     renderDraftPrecheckStatus(draftPrecheck);
