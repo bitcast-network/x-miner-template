@@ -79,6 +79,55 @@ async def test_three_yes_verdicts_pass() -> None:
     assert len(result.checks) == 3
 
 
+async def test_every_x_brief_field_is_available_to_prompt_generators(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompt_inputs: list[dict[str, object]] = []
+
+    def generate_prompt(
+        brief: dict[str, object],
+        _tweet: str,
+        _version: int,
+    ) -> str:
+        prompt_inputs.append(dict(brief))
+        return "prompt"
+
+    monkeypatch.setattr(
+        "x_miner_template.draft_precheck.generate_brief_evaluation_prompt",
+        generate_prompt,
+    )
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": response("YES", "approved")}}]},
+        )
+
+    source = campaign()
+    source["x_brief"] = {
+        "id_brief": 42,
+        "project": "Bitcast",
+        "project_context": "Full project context",
+        "product_context": "Full product context",
+        "brief": "stale nested brief",
+        "prompt_version": 1,
+    }
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    evaluator = OpenRouterDraftPrechecker(api_key="secret", client=client)
+    try:
+        await evaluator.evaluate(source, "Draft")
+    finally:
+        await client.aclose()
+
+    assert len(prompt_inputs) == 3
+    assert all(item["id_brief"] == 42 for item in prompt_inputs)
+    assert all(item["project_context"] == "Full project context" for item in prompt_inputs)
+    assert all(item["product_context"] == "Full product context" for item in prompt_inputs)
+    assert all(item["id"] == "campaign-1" for item in prompt_inputs)
+    assert all(item["brief"] == "Explain why the product matters." for item in prompt_inputs)
+    assert all(item["prompt_version"] == 2 for item in prompt_inputs)
+
+
 async def test_provider_failure_is_unavailable_not_content_rejection() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"error": "unavailable"})

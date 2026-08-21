@@ -121,11 +121,15 @@ class OpenRouterDraftPrechecker:
                 "Update the template before claiming."
             )
 
-        prompt_brief = {
-            "id": campaign_id,
-            "brief": brief,
-            "prompt_version": prompt_version,
-        }
+        source_fields = campaign.get("x_brief")
+        prompt_brief = dict(source_fields) if isinstance(source_fields, Mapping) else {}
+        prompt_brief.update(
+            {
+                "id": campaign_id,
+                "brief": brief,
+                "prompt_version": prompt_version,
+            }
+        )
         text = draft[: self._draft_max_length]
         checks: list[DraftEvaluation] = []
         for check in range(1, self._num_checks + 1):
