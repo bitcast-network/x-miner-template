@@ -16,7 +16,7 @@ from x_miner_template.draft_precheck import (
     DraftPrecheckUnavailableError,
     UnsupportedPromptVersionError,
 )
-from x_miner_template.node import MinerNodeClient, MinerNodeError
+from x_miner_template.node import MinerNodeClient, MinerNodeError, MinerNodeTimeout
 
 STATIC_DIR = Path(__file__).parent / "static"
 EcosystemFilter = Annotated[list[str] | None, Query()]
@@ -92,6 +92,23 @@ def create_app(
     async def miner_node_error(_request: Request, error: MinerNodeError) -> JSONResponse:
         headers = {"Retry-After": error.retry_after} if error.retry_after else None
         return JSONResponse(status_code=error.status_code, content=error.body, headers=headers)
+
+    @app.exception_handler(MinerNodeTimeout)
+    async def miner_node_timeout(_request: Request, _error: MinerNodeTimeout) -> JSONResponse:
+        return JSONResponse(
+            status_code=504,
+            content={
+                "error": {
+                    "code": "miner_node_timeout",
+                    "message": (
+                        "The miner is still processing this request. Check the durable "
+                        "operation before retrying."
+                    ),
+                    "retryable": True,
+                }
+            },
+            headers={"Retry-After": "5"},
+        )
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
@@ -220,12 +237,41 @@ def create_app(
                         "precheck": precheck.model_dump(mode="json"),
                     },
                 )
-        result: dict[str, Any] = await client.request(
-            "POST",
-            "/api/v1/claims",
-            json=body.model_dump(mode="json", exclude_none=True),
-            idempotency_key=idempotency_key,
-        )
+        external_id = body.external_id or idempotency_key
+        claim_payload = body.model_dump(mode="json", exclude_none=True)
+        claim_payload["external_id"] = external_id
+        try:
+            result: dict[str, Any] = await client.request(
+                "POST",
+                "/api/v1/claims",
+                json=claim_payload,
+                idempotency_key=idempotency_key,
+                request_timeout=settings.claim_timeout_seconds,
+            )
+        except MinerNodeTimeout as timeout_error:
+            recovered: dict[str, Any] = await client.request(
+                "GET",
+                "/api/v1/claims",
+                params=[
+                    ("campaign_id", body.campaign_id),
+                    ("creator_x_id", body.creator_x_id),
+                    ("external_id", external_id),
+                ],
+            )
+            exact_claim = next(
+                (
+                    item
+                    for item in recovered.get("items", [])
+                    if item.get("external_id") == external_id
+                ),
+                None,
+            )
+            if exact_claim is None:
+                raise timeout_error
+            return JSONResponse(
+                content=exact_claim,
+                headers={"X-Bitcast-Claim-Recovered": "true"},
+            )
         return JSONResponse(content=result)
 
     @app.get("/api/claims")

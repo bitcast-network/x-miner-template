@@ -14,7 +14,7 @@ from x_miner_template.draft_precheck import (
     DraftPrecheckUnavailableError,
     UnsupportedPromptVersionError,
 )
-from x_miner_template.node import MinerNodeClient, MinerNodeError
+from x_miner_template.node import MinerNodeClient, MinerNodeError, MinerNodeTimeout
 
 NODE_TOKEN = "n" * 64
 DEMO_PASSWORD = "strong-demo-password"  # noqa: S105
@@ -216,6 +216,71 @@ def test_claim_and_submission_forward_idempotency_without_exposing_node_token() 
     assert node.requests[0]["idempotency_key"] == "claim-key-0001"
     assert node.requests[1]["idempotency_key"] == "submission-key-0001"
     assert NODE_TOKEN not in str(node.requests)
+
+
+def test_claim_timeout_recovers_exact_durable_claim() -> None:
+    class TimedOutNode(Node):
+        async def request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            self.requests.append({"method": method, "path": path, **kwargs})
+            if method == "POST":
+                raise MinerNodeTimeout(method, path)
+            external_id = dict(kwargs["params"])["external_id"]
+            return {
+                "items": [
+                    {
+                        "claim_id": "c" * 32,
+                        "external_id": external_id,
+                        "usability": {"status": "pending", "safe_to_post": False},
+                    }
+                ]
+            }
+
+    node = TimedOutNode()
+    web = TestClient(create_app(settings(), lambda: node))
+
+    response = web.post(
+        "/api/claims",
+        headers={"Idempotency-Key": "recover-timeout-claim"},
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-bitcast-claim-recovered"] == "true"
+    assert response.json()["claim_id"] == "c" * 32
+    assert node.requests[0]["json"]["external_id"] == "recover-timeout-claim"
+    assert node.requests[0]["request_timeout"] == 120
+    assert node.requests[1]["params"] == [
+        ("campaign_id", "campaign"),
+        ("creator_x_id", "123"),
+        ("external_id", "recover-timeout-claim"),
+    ]
+
+
+def test_unreconciled_claim_timeout_is_a_retryable_gateway_timeout() -> None:
+    class MissingClaimNode(Node):
+        async def request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+            if method == "POST":
+                raise MinerNodeTimeout(method, path)
+            return {"items": []}
+
+    web = TestClient(create_app(settings(), MissingClaimNode))
+
+    response = web.post(
+        "/api/claims",
+        headers={"Idempotency-Key": "missing-timeout-claim"},
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
+    )
+
+    assert response.status_code == 504
+    assert response.headers["retry-after"] == "5"
+    assert response.json()["error"] == {
+        "code": "miner_node_timeout",
+        "message": (
+            "The miner is still processing this request. Check the durable operation before "
+            "retrying."
+        ),
+        "retryable": True,
+    }
 
 
 def test_precheck_status_is_disabled_and_claims_still_work_without_key() -> None:
