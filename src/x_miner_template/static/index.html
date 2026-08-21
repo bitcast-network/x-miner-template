@@ -61,7 +61,7 @@
           </div>
           <button id="refresh-campaign" class="button secondary" type="button">Refresh</button>
         </div>
-        <div class="two-column">
+        <div class="campaign-stack">
           <article class="panel">
             <h3>Campaign brief</h3>
             <p id="campaign-brief"></p>
@@ -70,8 +70,17 @@
             <div id="eligibility-result" class="notice neutral">Enter your X user ID, then check eligibility.</div>
           </article>
 
-          <article class="panel">
-            <h3 id="operation-title">Commit draft</h3>
+          <article id="claims-section" class="panel">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">PRIVATE · DURABLE</p>
+                <h3 id="operation-title">Claims</h3>
+              </div>
+              <button id="recover-claim" class="button secondary" type="button">Refresh claims</button>
+            </div>
+            <p class="supporting-copy">
+              Existing claims are loaded automatically for the X user above and remain stored by the miner.
+            </p>
             <form id="claim-form">
               <label>
                 <span>Exact unpublished tweet</span>
@@ -82,11 +91,21 @@
               </p>
               <button class="button primary" type="submit">Create safe-to-post claim</button>
             </form>
-            <button id="recover-claim" class="button secondary" type="button">Recover latest claim</button>
-            <p class="supporting-copy">Existing claims are loaded automatically for the X user above.</p>
-            <div id="claim-result" class="notice neutral">No claim created yet.</div>
+            <div id="claim-result" class="notice neutral">Enter your X user ID to load durable claims.</div>
+            <h4 class="table-heading">Existing claims</h4>
+            <div class="table-wrap claims-table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Created</th><th>Claim ID</th><th>Commitment</th><th>State</th><th>Safe to post</th><th></th></tr>
+                </thead>
+                <tbody id="claim-rows"><tr><td colspan="6">No claims loaded.</td></tr></tbody>
+              </table>
+            </div>
             <dl id="claim-details" class="detail-list operation-details hidden"></dl>
+          </article>
 
+          <article id="submission-section" class="panel">
+            <h3>Submit published tweet</h3>
             <form id="submission-form">
               <label>
                 <span>Published tweet URL or ID</span>

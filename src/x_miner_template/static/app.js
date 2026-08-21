@@ -12,7 +12,9 @@ const state = {
   draftPrecheckEnabled: false,
   selectedCampaign: null,
   selectedSubmissionId: null,
+  claims: [],
   claim: JSON.parse(localStorage.getItem("bx-reference-claim") || "null"),
+  viewedClaimId: null,
 };
 
 async function request(path, options = {}) {
@@ -304,11 +306,11 @@ function renderSelectedCampaign(campaignChanged = false) {
   addDetail(metadata, "Total engagements", campaign.stats?.total_engagements);
   addDetail(metadata, "Data updated", dateTime(campaign.stats?.data_updated_at));
   const direct = !campaign.capabilities.requires_claim;
-  $("#claim-form").classList.toggle("hidden", direct);
-  $("#recover-claim").classList.toggle("hidden", direct);
-  $("#operation-title").textContent = direct ? "Submit published tweet" : "Commit draft before posting";
+  $("#claims-section").classList.toggle("hidden", direct);
   if (campaignChanged) {
     state.selectedSubmissionId = null;
+    state.claims = [];
+    state.viewedClaimId = null;
     $("#submission-detail").classList.add("hidden");
     notice(
       $("#eligibility-result"),
@@ -317,10 +319,15 @@ function renderSelectedCampaign(campaignChanged = false) {
     notice($("#submission-result"), "No tweet submitted yet.");
     $("#tweet-id").value = "";
   }
-  notice(
-    $("#claim-result"),
-    direct ? "This exclusive campaign uses direct protocol-v2 submission; no claim is needed." : "No claim created yet.",
-  );
+  renderClaimRows(state.claims);
+  if (!direct) {
+    notice(
+      $("#claim-result"),
+      /^\d+$/.test(creatorId())
+        ? "Loading durable claims from the miner…"
+        : "Enter your X user ID to load durable claims.",
+    );
+  }
   $("#claim-details").classList.add("hidden");
 }
 
@@ -367,9 +374,58 @@ async function createClaim(event) {
     });
     state.claim = claim;
     localStorage.setItem("bx-reference-claim", JSON.stringify(claim));
-    renderClaim(claim);
+    await recoverClaim({ preferredClaimId: claim.claim_id });
+    notice($("#claim-result"), `Claim ${short(claim.claim_id)} was created and stored by the miner.`, "success");
   } catch (error) {
     notice($("#claim-result"), error.message, "error");
+  }
+}
+
+function claimCell(row, value, className = "") {
+  const cell = document.createElement("td");
+  cell.textContent = value;
+  if (className) cell.className = className;
+  row.append(cell);
+  return cell;
+}
+
+function renderClaimRows(claims) {
+  const target = $("#claim-rows");
+  target.replaceChildren();
+  if (!claims.length) {
+    const row = document.createElement("tr");
+    const cell = claimCell(row, "No durable claims found for this creator and campaign.");
+    cell.colSpan = 6;
+    target.append(row);
+    return;
+  }
+  for (const claim of claims) {
+    const row = document.createElement("tr");
+    row.className = `claim-row ${state.viewedClaimId === claim.claim_id ? "selected" : ""}`;
+    claimCell(row, dateTime(claim.created_at));
+    const idCell = claimCell(row, short(claim.claim_id, 6), "claim-id");
+    idCell.title = claim.claim_id;
+    claimCell(row, claim.commitment?.status || "pending");
+    claimCell(row, claim.usability?.status || "pending");
+    claimCell(
+      row,
+      claim.usability?.safe_to_post ? "Yes" : "No",
+      claim.usability?.safe_to_post ? "claim-safe" : "claim-unsafe",
+    );
+    const action = document.createElement("td");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button secondary table-action";
+    button.textContent = state.viewedClaimId === claim.claim_id ? "Viewing" : "Details";
+    button.disabled = state.viewedClaimId === claim.claim_id;
+    button.addEventListener("click", () => {
+      state.viewedClaimId = claim.claim_id;
+      renderClaimRows(state.claims);
+      renderClaim(claim);
+    });
+    action.append(button);
+    row.append(action);
+    target.append(row);
   }
 }
 
@@ -390,50 +446,25 @@ function renderClaim(claim) {
   addDetail(details, "Created", dateTime(claim.created_at));
   addDetail(details, "Updated", dateTime(claim.updated_at));
   details.classList.remove("hidden");
-  const status = claim.usability?.status;
-  if (claim.usability?.safe_to_post) {
-    notice(
-      $("#claim-result"),
-      `Safe to post. Claim ${claim.claim_id} is finalized and active.`,
-      "success",
-    );
-    return;
-  }
-  if (status === "consumed") {
-    notice(
-      $("#claim-result"),
-      `Claim ${claim.claim_id} was consumed by submission ${claim.usability.consumed_by_submission_id}.`,
-      "success",
-    );
-    return;
-  }
-  if (status === "evicted") {
-    notice(
-      $("#claim-result"),
-      `Claim ${claim.claim_id} was evicted when claim ${claim.usability.evicted_by_claim_id} became active. Create a new claim before posting.`,
-      "error",
-    );
-    return;
-  }
-  notice(
-    $("#claim-result"),
-    `Claim ${claim.claim_id}: ${status || claim.commitment?.status || "pending"}. Waiting before you post.`,
-    status === "expired" ? "error" : "neutral",
-  );
 }
 
 async function refreshClaim() {
   if (!state.claim?.claim_id) return;
   try {
     state.claim = await request(`/api/claims/${state.claim.claim_id}`);
+    state.claims = state.claims.map((claim) => (
+      claim.claim_id === state.claim.claim_id ? state.claim : claim
+    ));
     localStorage.setItem("bx-reference-claim", JSON.stringify(state.claim));
-    renderClaim(state.claim);
+    renderClaimRows(state.claims);
+    const viewed = state.claims.find((claim) => claim.claim_id === state.viewedClaimId);
+    if (viewed) renderClaim(viewed);
   } catch (error) {
     notice($("#claim-result"), error.message, "error");
   }
 }
 
-async function recoverClaim() {
+async function recoverClaim({ preferredClaimId = null } = {}) {
   if (!state.selectedCampaign || !state.selectedCampaign.capabilities.requires_claim) return;
   try {
     const creator = requireCreator();
@@ -442,16 +473,31 @@ async function recoverClaim() {
       creator_x_id: creator,
     });
     const result = await request(`/api/claims?${query}`);
-    const claim = (result.items || [])[0];
+    state.claims = result.items || [];
+    const claim = state.claims.find((item) => item.claim_id === preferredClaimId)
+      || state.claims.find((item) => item.usability?.safe_to_post)
+      || state.claims[0];
     if (!claim) {
       state.claim = null;
+      state.viewedClaimId = null;
       localStorage.removeItem("bx-reference-claim");
+      renderClaimRows([]);
+      $("#claim-details").classList.add("hidden");
       notice($("#claim-result"), "No durable claim was found for this creator and campaign.");
       return;
     }
     state.claim = claim;
+    state.viewedClaimId = preferredClaimId || claim.claim_id;
     localStorage.setItem("bx-reference-claim", JSON.stringify(claim));
-    renderClaim(claim);
+    renderClaimRows(state.claims);
+    renderClaim(
+      state.claims.find((item) => item.claim_id === state.viewedClaimId) || claim,
+    );
+    notice(
+      $("#claim-result"),
+      `${state.claims.length} durable claim${state.claims.length === 1 ? "" : "s"} loaded from the miner.`,
+      "success",
+    );
   } catch (error) {
     notice($("#claim-result"), error.message, "error");
   }
@@ -783,6 +829,10 @@ async function boot() {
 }
 
 $("#creator-x-id").addEventListener("change", () => {
+  state.claims = [];
+  state.viewedClaimId = null;
+  renderClaimRows([]);
+  $("#claim-details").classList.add("hidden");
   if (/^\d+$/.test(creatorId())) {
     localStorage.setItem("bx-reference-creator", creatorId());
     if (state.claim?.creator_x_id !== creatorId()) {
@@ -790,12 +840,14 @@ $("#creator-x-id").addEventListener("change", () => {
       localStorage.removeItem("bx-reference-claim");
     }
     recoverClaim();
+  } else {
+    notice($("#claim-result"), "Enter your X user ID to load durable claims.");
   }
   loadSubmissions();
 });
 $("#check-eligibility").addEventListener("click", checkEligibility);
 $("#claim-form").addEventListener("submit", createClaim);
-$("#recover-claim").addEventListener("click", recoverClaim);
+$("#recover-claim").addEventListener("click", () => recoverClaim());
 $("#submission-form").addEventListener("submit", createSubmission);
 $("#refresh-campaign").addEventListener("click", async () => {
   await selectCampaign(state.selectedCampaign);

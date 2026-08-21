@@ -273,7 +273,7 @@ select {
 .campaign-stats span { display: grid; gap: 3px; }
 .campaign-stats strong { color: var(--ink); font-size: 15px; }
 
-.two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.campaign-stack { display: grid; gap: 16px; }
 .panel { background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
 .panel > p { color: #d6dbd4; line-height: 1.65; }
 .panel form { display: grid; gap: 14px; margin: 18px 0; }
@@ -315,6 +315,14 @@ select {
 .precheck-status.enabled { color: var(--acid); }
 .precheck-status.disabled { color: var(--warning); opacity: 0.78; }
 .panel > .supporting-copy { margin: 8px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.table-heading { margin: 24px 0 8px; font-size: 14px; }
+.claims-table-wrap { border: 1px solid var(--line); border-radius: 10px; background: #111512; }
+.claims-table-wrap th:first-child, .claims-table-wrap td:first-child { padding-left: 14px; }
+.claims-table-wrap th:last-child, .claims-table-wrap td:last-child { padding-right: 14px; text-align: right; }
+.claim-row.selected { background: rgba(185, 255, 61, 0.045); }
+.claim-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.claim-safe { color: var(--acid); font-weight: 700; }
+.claim-unsafe { color: var(--muted); }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -339,7 +347,7 @@ footer { color: #707a70; width: min(1180px, 90vw); margin: 45px auto; font-size:
   .nav-link { flex: 1; }
   .status-badge { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hero { padding-top: 60px; }
-  .qualification, .campaign-grid, .two-column, .result-groups { grid-template-columns: 1fr; }
+  .qualification, .campaign-grid, .result-groups { grid-template-columns: 1fr; }
   .qualification div { border-right: 0; border-bottom: 1px solid var(--line); }
   .qualification div:last-child { border-bottom: 0; }
   .workspace { padding: 24px 18px; }
