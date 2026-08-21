@@ -12,7 +12,7 @@ How to add a new prompt version:
 3. Update tests to validate the new version
 4. Briefs can then specify "prompt_version": X to use the new format
 
-Currently supported versions: v1, v2, v3, v4, v5 (default: v1)
+Currently supported versions: v1, v2, v5, v6 (default: v1)
 """
 
 # ruff: noqa: E501 -- line breaks would change frozen prompt cache keys.
@@ -264,13 +264,52 @@ def generate_brief_evaluation_prompt_v5(brief: Mapping[str, Any], tweet: str) ->
     )
 
 
+def generate_brief_evaluation_prompt_v6(brief: Mapping[str, Any], tweet: str) -> str:
+    """Evaluate whether a post follows the instructions in a campaign brief."""
+
+    return (
+        "///// CAMPAIGN BRIEF /////\n"
+        f"{brief['brief']}\n\n"
+        "///// POST /////\n"
+        f"{tweet}\n\n"
+        "///// YOUR TASK /////\n"
+        "You are a campaign compliance reviewer. Decide whether this post follows all instructions in the brief.\n\n"
+        "**Evaluation principles**\n"
+        "• Treat the brief as the complete source of requirements.\n"
+        "• Do not add requirements that are not stated in the brief.\n"
+        "• Treat every explicit instruction in the brief as required.\n"
+        "• Evaluate only what is present in the post. Do not infer or invent evidence.\n\n"
+        "**Step-by-step instructions**\n"
+        "1. Identify each instruction in the brief.\n"
+        "2. For every instruction:\n"
+        "   • Mark **Met** when the post clearly follows it and provide a short quote as evidence.\n"
+        "   • Mark **Not Met** when the post does not follow it or the evidence is absent or uncertain.\n"
+        "3. If any instruction is Not Met, return **NO**. Otherwise, return **YES**.\n\n"
+        "**Important accuracy rules**\n"
+        "• Quotes must be copied from the post.\n"
+        "• Fabricated evidence automatically fails that instruction.\n"
+        "• When in doubt, choose **NO**.\n"
+        "**Response format (exactly):**\n"
+        "```\n"
+        "## Instruction-by-Instruction\n"
+        '- Instruction 1: [instruction] — Met / Not Met — "quoted evidence"\n'
+        "- Instruction 2: ...\n"
+        "...\n"
+        "## Verdict\n"
+        "YES or NO\n"
+        "## Summary\n"
+        "One sentence explaining why the post did or did not follow the brief.\n"
+        "```\n"
+        "Be concise."
+    )
+
+
 # Registry of available prompt generators
 PROMPT_GENERATORS: dict[int, PromptGenerator] = {
     1: generate_brief_evaluation_prompt_v1,
     2: generate_brief_evaluation_prompt_v2,
-    3: generate_brief_evaluation_prompt_v3,
-    4: generate_brief_evaluation_prompt_v4,
     5: generate_brief_evaluation_prompt_v5,
+    6: generate_brief_evaluation_prompt_v6,
 }
 
 
