@@ -88,15 +88,26 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(
+            STATIC_DIR / "index.html",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/app.js", include_in_schema=False)
     async def javascript() -> FileResponse:
-        return FileResponse(STATIC_DIR / "app.js", media_type="text/javascript")
+        return FileResponse(
+            STATIC_DIR / "app.js",
+            media_type="text/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/styles.css", include_in_schema=False)
     async def stylesheet() -> FileResponse:
-        return FileResponse(STATIC_DIR / "styles.css", media_type="text/css")
+        return FileResponse(
+            STATIC_DIR / "styles.css",
+            media_type="text/css",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/health")
     async def health() -> dict[str, str]:

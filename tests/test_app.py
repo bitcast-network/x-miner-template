@@ -84,6 +84,9 @@ def test_static_product_and_health_are_served() -> None:
     assert "Top ecosystem voices" in page.text
     assert "Campaign tweets" in page.text
     assert 'id="leaderboard-filters"' in page.text
+    assert page.headers["cache-control"] == "no-store"
+    assert web.get("/app.js").headers["cache-control"] == "no-cache"
+    assert web.get("/styles.css").headers["cache-control"] == "no-cache"
     assert web.get("/health").json()["service"] == "x-miner-template"
 
 
