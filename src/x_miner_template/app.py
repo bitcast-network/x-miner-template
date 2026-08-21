@@ -11,6 +11,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from x_miner_template.config import Settings
+from x_miner_template.draft_precheck import (
+    DraftPrechecker,
+    DraftPrecheckUnavailableError,
+    UnsupportedPromptVersionError,
+)
 from x_miner_template.node import MinerNodeClient, MinerNodeError
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -49,6 +54,8 @@ def _basic_credentials(header: str) -> tuple[str, str] | None:
 def create_app(
     settings: Settings,
     client_provider: Callable[[], MinerNodeClient],
+    *,
+    draft_prechecker: DraftPrechecker | None = None,
 ) -> FastAPI:
     """Build the reference product while keeping node credentials server-side."""
 
@@ -158,19 +165,68 @@ def create_app(
     ) -> dict[str, Any]:
         return await client.campaign_tweets(campaign_id, ecosystem_id or [])
 
+    @app.get("/api/draft-precheck/status")
+    async def draft_precheck_status() -> dict[str, Any]:
+        enabled = draft_prechecker is not None
+        return {
+            "enabled": enabled,
+            "mode": "all_three_must_pass" if enabled else "disabled",
+            "checks": 3 if enabled else 0,
+            "provider": "openrouter" if enabled else None,
+        }
+
     @app.post("/api/claims")
     async def create_claim(
         body: ClaimRequest,
         client: Client,
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-    ) -> dict[str, Any]:
+    ) -> JSONResponse:
+        if draft_prechecker is not None:
+            campaign = await client.campaign(body.campaign_id)
+            try:
+                precheck = await draft_prechecker.evaluate(campaign, body.draft)
+            except UnsupportedPromptVersionError as error:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": {
+                            "code": "draft_precheck_version_unsupported",
+                            "message": str(error),
+                        }
+                    },
+                )
+            except (DraftPrecheckUnavailableError, ValueError) as error:
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": {
+                            "code": "draft_precheck_unavailable",
+                            "message": str(error),
+                        }
+                    },
+                    headers={"Retry-After": "15"},
+                )
+            if not precheck.meets_brief:
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "error": {
+                            "code": "draft_precheck_failed",
+                            "message": (
+                                "Tweet draft did not pass all three prechecks. "
+                                f"{precheck.failure_reason}"
+                            ),
+                        },
+                        "precheck": precheck.model_dump(mode="json"),
+                    },
+                )
         result: dict[str, Any] = await client.request(
             "POST",
             "/api/v1/claims",
             json=body.model_dump(mode="json", exclude_none=True),
             idempotency_key=idempotency_key,
         )
-        return result
+        return JSONResponse(content=result)
 
     @app.get("/api/claims")
     async def claims(

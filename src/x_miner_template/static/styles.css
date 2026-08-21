@@ -310,6 +310,10 @@ select {
 .notice.neutral { color: var(--muted); background: #111512; }
 .notice.success { color: var(--acid); background: rgba(185, 255, 61, 0.06); border-color: rgba(185, 255, 61, 0.3); }
 .notice.error { color: var(--danger); background: rgba(255, 128, 111, 0.06); border-color: rgba(255, 128, 111, 0.3); }
+.precheck-status { margin: -3px 0 0; font-size: 12px; line-height: 1.45; }
+.precheck-status.pending { color: var(--muted); }
+.precheck-status.enabled { color: var(--acid); }
+.precheck-status.disabled { color: var(--warning); opacity: 0.78; }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }

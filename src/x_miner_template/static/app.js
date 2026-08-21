@@ -9,6 +9,7 @@ const state = {
   leaderboardOffset: 0,
   leaderboardTotalCount: 0,
   leaderboardLoaded: false,
+  draftPrecheckEnabled: false,
   selectedCampaign: null,
   selectedSubmissionId: null,
   claim: JSON.parse(localStorage.getItem("bx-reference-claim") || "null"),
@@ -134,6 +135,18 @@ function renderStatus(status) {
   fields[0].title = qualification.miner_hotkey || "";
   fields[1].textContent = qualification.reason || (qualification.eligible ? "Eligible" : "Not qualified");
   fields[2].textContent = qualification.checked_block ?? "—";
+}
+
+function renderDraftPrecheckStatus(status) {
+  state.draftPrecheckEnabled = Boolean(status.enabled);
+  const target = $("#draft-precheck-status");
+  if (status.enabled) {
+    target.textContent = "Strict tweet precheck enabled · all three OpenRouter reviews must pass.";
+    target.className = "precheck-status enabled";
+  } else {
+    target.textContent = "Tweet precheck is not enabled. Add an OpenRouter key to enable it.";
+    target.className = "precheck-status disabled";
+  }
 }
 
 function renderEcosystems() {
@@ -331,7 +344,12 @@ async function createClaim(event) {
   event.preventDefault();
   try {
     const key = idempotencyKey("claim");
-    notice($("#claim-result"), "Committing the private draft on chain…");
+    notice(
+      $("#claim-result"),
+      state.draftPrecheckEnabled
+        ? "Running strict three-of-three tweet precheck before committing…"
+        : "Committing the private draft on chain…",
+    );
     const claim = await request("/api/claims", {
       method: "POST",
       headers: { "Idempotency-Key": key },
@@ -738,11 +756,13 @@ async function boot() {
   showPage(currentPage());
   $("#creator-x-id").value = localStorage.getItem("bx-reference-creator") || "";
   try {
-    const [status, ecosystems] = await Promise.all([
+    const [status, ecosystems, draftPrecheck] = await Promise.all([
       request("/api/status"),
       request("/api/ecosystems"),
+      request("/api/draft-precheck/status"),
     ]);
     renderStatus(status);
+    renderDraftPrecheckStatus(draftPrecheck);
     state.ecosystems = ecosystems.items || [];
     state.enabledEcosystems = new Set(state.ecosystems.map((item) => item.ecosystem_id));
     renderEcosystems();

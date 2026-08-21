@@ -8,6 +8,12 @@ from pydantic import SecretStr
 
 from x_miner_template.app import create_app
 from x_miner_template.config import Settings
+from x_miner_template.draft_precheck import (
+    DraftEvaluation,
+    DraftPrecheckResult,
+    DraftPrecheckUnavailableError,
+    UnsupportedPromptVersionError,
+)
 from x_miner_template.node import MinerNodeClient, MinerNodeError
 
 NODE_TOKEN = "n" * 64
@@ -74,6 +80,39 @@ class Node:
         if path == "/api/v1/submissions" and method == "POST":
             return {"submission_id": "b" * 32, "status": "tweet_received"}
         return {"items": []}
+
+
+class Prechecker:
+    def __init__(
+        self,
+        *,
+        meets_brief: bool = True,
+        unavailable: bool = False,
+        unsupported_version: bool = False,
+    ) -> None:
+        self.meets_brief = meets_brief
+        self.unavailable = unavailable
+        self.unsupported_version = unsupported_version
+        self.requests: list[dict[str, Any]] = []
+
+    async def evaluate(self, campaign: dict[str, Any], draft: str) -> DraftPrecheckResult:
+        self.requests.append({"campaign": campaign, "draft": draft})
+        if self.unavailable:
+            raise DraftPrecheckUnavailableError("Tweet precheck is temporarily unavailable.")
+        if self.unsupported_version:
+            raise UnsupportedPromptVersionError(
+                "Campaign requires unsupported prompt version 6. "
+                "Update the template before claiming."
+            )
+        checks = tuple(
+            DraftEvaluation(
+                meets_brief=self.meets_brief,
+                reasoning="approved" if self.meets_brief else f"check {check} rejected",
+                check=check,
+            )
+            for check in range(1, 4)
+        )
+        return DraftPrecheckResult(meets_brief=self.meets_brief, checks=checks)
 
 
 def settings(*, password: str | None = None) -> Settings:
@@ -177,6 +216,104 @@ def test_claim_and_submission_forward_idempotency_without_exposing_node_token() 
     assert node.requests[0]["idempotency_key"] == "claim-key-0001"
     assert node.requests[1]["idempotency_key"] == "submission-key-0001"
     assert NODE_TOKEN not in str(node.requests)
+
+
+def test_precheck_status_is_disabled_and_claims_still_work_without_key() -> None:
+    node = Node()
+    web = TestClient(create_app(settings(), lambda: node))
+
+    status = web.get("/api/draft-precheck/status")
+    claim = web.post(
+        "/api/claims",
+        headers={"Idempotency-Key": "claim-without-precheck"},
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Exact draft"},
+    )
+
+    assert status.json() == {
+        "enabled": False,
+        "mode": "disabled",
+        "checks": 0,
+        "provider": None,
+    }
+    assert claim.status_code == 200
+    assert node.requests[0]["path"] == "/api/v1/claims"
+
+
+def test_strict_precheck_failure_prevents_claim_forwarding() -> None:
+    node = Node()
+    prechecker = Prechecker(meets_brief=False)
+    web = TestClient(create_app(settings(), lambda: node, draft_prechecker=prechecker))
+
+    response = web.post(
+        "/api/claims",
+        headers={"Idempotency-Key": "rejected-claim"},
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Weak draft"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "draft_precheck_failed"
+    assert "all three" in response.json()["error"]["message"]
+    assert prechecker.requests[0]["draft"] == "Weak draft"
+    assert node.requests == []
+
+
+def test_strict_precheck_pass_forwards_claim_and_unavailability_is_retryable() -> None:
+    passing_node = Node()
+    passing = TestClient(
+        create_app(
+            settings(),
+            lambda: passing_node,
+            draft_prechecker=Prechecker(meets_brief=True),
+        )
+    )
+    passed = passing.post(
+        "/api/claims",
+        headers={"Idempotency-Key": "approved-claim"},
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Good draft"},
+    )
+
+    unavailable_node = Node()
+    unavailable = TestClient(
+        create_app(
+            settings(),
+            lambda: unavailable_node,
+            draft_prechecker=Prechecker(unavailable=True),
+        )
+    )
+    unavailable_response = unavailable.post(
+        "/api/claims",
+        headers={"Idempotency-Key": "unavailable-claim"},
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Good draft"},
+    )
+
+    assert passed.status_code == 200
+    assert passing_node.requests[0]["path"] == "/api/v1/claims"
+    assert unavailable_response.status_code == 503
+    assert unavailable_response.headers["retry-after"] == "15"
+    assert unavailable_response.json()["error"]["code"] == "draft_precheck_unavailable"
+    assert unavailable_node.requests == []
+
+
+def test_unsupported_campaign_prompt_version_blocks_claim() -> None:
+    node = Node()
+    web = TestClient(
+        create_app(
+            settings(),
+            lambda: node,
+            draft_prechecker=Prechecker(unsupported_version=True),
+        )
+    )
+
+    response = web.post(
+        "/api/claims",
+        headers={"Idempotency-Key": "unsupported-version"},
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Draft"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "draft_precheck_version_unsupported"
+    assert "Update the template" in response.json()["error"]["message"]
+    assert node.requests == []
 
 
 def test_recovery_filters_are_forwarded_without_changing_identifiers() -> None:
