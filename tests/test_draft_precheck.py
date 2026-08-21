@@ -1,5 +1,6 @@
 """Offline coverage for the replicated strict OpenRouter evaluator."""
 
+import asyncio
 import json
 
 import httpx
@@ -77,6 +78,36 @@ async def test_three_yes_verdicts_pass() -> None:
 
     assert result.meets_brief is True
     assert len(result.checks) == 3
+
+
+async def test_all_three_checks_run_concurrently_and_keep_check_order() -> None:
+    started = 0
+    all_started = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal started
+        started += 1
+        if started == 3:
+            all_started.set()
+        await asyncio.wait_for(all_started.wait(), timeout=0.5)
+        request_payload = json.loads(request.content)
+        prompt = request_payload["messages"][0]["content"]
+        check = next(value for value in (1, 2, 3) if f"Draft {value}" in prompt)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": response("YES", f"check {check}")}}]},
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    evaluator = OpenRouterDraftPrechecker(api_key="secret", client=client)
+    try:
+        result = await evaluator.evaluate(campaign(), "Draft")
+    finally:
+        await client.aclose()
+
+    assert started == 3
+    assert [item.check for item in result.checks] == [1, 2, 3]
+    assert [item.reasoning for item in result.checks] == ["check 1", "check 2", "check 3"]
 
 
 async def test_every_x_brief_field_is_available_to_prompt_generators(

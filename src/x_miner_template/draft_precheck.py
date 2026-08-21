@@ -131,30 +131,55 @@ class OpenRouterDraftPrechecker:
             }
         )
         text = draft[: self._draft_max_length]
-        checks: list[DraftEvaluation] = []
+        requests: list[tuple[int, str]] = []
         for check in range(1, self._num_checks + 1):
             prompt = generate_brief_evaluation_prompt(
                 prompt_brief,
                 f"{text} {check}",
                 prompt_version,
             )
-            try:
-                response_text = await self._request(prompt)
-            except httpx.HTTPError as exc:
-                LOGGER.warning(
-                    "draft precheck unavailable campaign=%s check=%s",
-                    campaign_id,
-                    check,
+            requests.append((check, prompt))
+
+        try:
+            checks = await asyncio.gather(
+                *(
+                    self._evaluate_check(
+                        campaign_id=campaign_id,
+                        check=check,
+                        prompt=prompt,
+                    )
+                    for check, prompt in requests
                 )
-                raise DraftPrecheckUnavailableError(
-                    "Tweet precheck is temporarily unavailable. Please try again."
-                ) from exc
-            checks.append(parse_draft_evaluation(response_text, check=check))
+            )
+        except httpx.HTTPError as exc:
+            raise DraftPrecheckUnavailableError(
+                "Tweet precheck is temporarily unavailable. Please try again."
+            ) from exc
 
         return DraftPrecheckResult(
             meets_brief=all(item.meets_brief for item in checks),
             checks=tuple(checks),
         )
+
+    async def _evaluate_check(
+        self,
+        *,
+        campaign_id: str,
+        check: int,
+        prompt: str,
+    ) -> DraftEvaluation:
+        """Run and parse one check so all checks can execute concurrently."""
+
+        try:
+            response_text = await self._request(prompt)
+        except httpx.HTTPError:
+            LOGGER.warning(
+                "draft precheck unavailable campaign=%s check=%s",
+                campaign_id,
+                check,
+            )
+            raise
+        return parse_draft_evaluation(response_text, check=check)
 
     async def _request(self, prompt: str) -> str:
         last_error: httpx.HTTPError | None = None
