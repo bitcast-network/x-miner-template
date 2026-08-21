@@ -150,12 +150,17 @@ def test_claims_are_automatically_recovered_when_a_campaign_is_opened() -> None:
     javascript = web.get("/app.js")
 
     assert "Existing claims are loaded automatically" in page.text
+    assert 'id="claim-rows"' in page.text
+    assert page.text.index('id="campaign-brief"') < page.text.index('id="claims-section"')
+    assert page.text.index('id="claims-section"') < page.text.index('id="submission-section"')
     select_campaign = javascript.text.split("async function selectCampaign", maxsplit=1)[1].split(
         "function renderSelectedCampaign", maxsplit=1
     )[0]
     assert "state.selectedCampaign.capabilities.requires_claim" in select_campaign
     assert "/^\\d+$/.test(creatorId())" in select_campaign
     assert "await recoverClaim();" in select_campaign
+    assert "function renderClaimRows(claims)" in javascript.text
+    assert "state.claims = result.items || []" in javascript.text
 
 
 def test_optional_basic_auth_protects_product_but_not_health() -> None:
