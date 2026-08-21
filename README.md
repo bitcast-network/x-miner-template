@@ -85,8 +85,12 @@ configured, claims continue normally and the creator sees a light warning that d
 disabled. OpenRouter outages are reported as retryable errors and never mislabelled as a brief
 failure.
 
+X handles are case-insensitive on X and in the validator's deterministic campaign checks. The
+template therefore case-folds `@handles` in its private LLM evaluation copy so capitalization alone
+cannot reject a claim. The original draft is still forwarded to the miner node byte-for-byte.
+
 The frozen prompt copy currently tracks `bitcast-x` commit
-`7411d34208a86d55f6fb72f2de6b3a6953f1a089`.
+`842d7ac3e3023f2b6773086d2374f0c1a9cdc68f` (PR #113).
 
 The campaign's `prompt_version` is mandatory while precheck is enabled. If a campaign references a
 newer prompt version that this template has not copied yet, the claim fails before any chain call and

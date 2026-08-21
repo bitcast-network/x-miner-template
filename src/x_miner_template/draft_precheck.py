@@ -12,6 +12,21 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from x_miner_template.draft_prompts import PROMPT_GENERATORS, generate_brief_evaluation_prompt
 
 LOGGER = logging.getLogger(__name__)
+X_HANDLE_PATTERN = re.compile(r"(?<![A-Za-z0-9_])@[A-Za-z0-9_]{1,15}(?![A-Za-z0-9_])")
+
+
+def normalize_x_handles_for_evaluation(value: Any) -> Any:
+    """Case-fold X handles in a private prompt copy without changing claim content."""
+
+    if isinstance(value, str):
+        return X_HANDLE_PATTERN.sub(lambda match: match.group(0).casefold(), value)
+    if isinstance(value, Mapping):
+        return {key: normalize_x_handles_for_evaluation(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [normalize_x_handles_for_evaluation(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(normalize_x_handles_for_evaluation(item) for item in value)
+    return value
 
 
 class DraftEvaluation(BaseModel):
@@ -122,15 +137,19 @@ class OpenRouterDraftPrechecker:
             )
 
         source_fields = campaign.get("x_brief")
-        prompt_brief = dict(source_fields) if isinstance(source_fields, Mapping) else {}
+        prompt_brief = (
+            normalize_x_handles_for_evaluation(dict(source_fields))
+            if isinstance(source_fields, Mapping)
+            else {}
+        )
         prompt_brief.update(
             {
                 "id": campaign_id,
-                "brief": brief,
+                "brief": normalize_x_handles_for_evaluation(brief),
                 "prompt_version": prompt_version,
             }
         )
-        text = draft[: self._draft_max_length]
+        text = normalize_x_handles_for_evaluation(draft[: self._draft_max_length])
         requests: list[tuple[int, str]] = []
         for check in range(1, self._num_checks + 1):
             prompt = generate_brief_evaluation_prompt(
@@ -230,7 +249,8 @@ def parse_draft_evaluation(text: str, *, check: int) -> DraftEvaluation:
 
     verdict = re.search(r"## Verdict\s*\n\s*(YES|NO)", text, re.IGNORECASE)
     breakdown = re.search(
-        r"## (?:Requirement-by-Requirement|Objective Requirements)[ \t]*\n"
+        r"## (?:Requirement-by-Requirement|Objective Requirements|"
+        r"Instruction-by-Instruction)[ \t]*\n"
         r"(.*?)(?:\n## Verdict|\n## |$)",
         text,
         re.DOTALL | re.IGNORECASE,

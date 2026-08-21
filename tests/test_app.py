@@ -343,18 +343,20 @@ def test_strict_precheck_failure_prevents_claim_forwarding() -> None:
 
 
 def test_strict_precheck_pass_forwards_claim_and_unavailability_is_retryable() -> None:
+    original_draft = "Good draft tagging @Bitcast_Network"
     passing_node = Node()
+    passing_prechecker = Prechecker(meets_brief=True)
     passing = TestClient(
         create_app(
             settings(),
             lambda: passing_node,
-            draft_prechecker=Prechecker(meets_brief=True),
+            draft_prechecker=passing_prechecker,
         )
     )
     passed = passing.post(
         "/api/claims",
         headers={"Idempotency-Key": "approved-claim"},
-        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": "Good draft"},
+        json={"campaign_id": "campaign", "creator_x_id": "123", "draft": original_draft},
     )
 
     unavailable_node = Node()
@@ -372,7 +374,9 @@ def test_strict_precheck_pass_forwards_claim_and_unavailability_is_retryable() -
     )
 
     assert passed.status_code == 200
+    assert passing_prechecker.requests[0]["draft"] == original_draft
     assert passing_node.requests[0]["path"] == "/api/v1/claims"
+    assert passing_node.requests[0]["json"]["draft"] == original_draft
     assert unavailable_response.status_code == 503
     assert unavailable_response.headers["retry-after"] == "15"
     assert unavailable_response.json()["error"]["code"] == "draft_precheck_unavailable"
