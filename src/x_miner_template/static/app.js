@@ -269,6 +269,9 @@ async function selectCampaign(campaign) {
   state.selectedCampaign = await request(`/api/campaigns/${campaign.campaign_id}`);
   renderCampaigns();
   renderSelectedCampaign(campaignChanged);
+  if (state.selectedCampaign.capabilities.requires_claim && /^\d+$/.test(creatorId())) {
+    await recoverClaim();
+  }
   await loadCampaignTweets();
   $("#campaign-workspace").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -319,12 +322,6 @@ function renderSelectedCampaign(campaignChanged = false) {
     direct ? "This exclusive campaign uses direct protocol-v2 submission; no claim is needed." : "No claim created yet.",
   );
   $("#claim-details").classList.add("hidden");
-  if (
-    state.claim?.campaign_id === campaign.campaign_id
-    && state.claim?.creator_x_id === creatorId()
-  ) {
-    refreshClaim();
-  }
 }
 
 async function checkEligibility() {
@@ -802,7 +799,6 @@ $("#recover-claim").addEventListener("click", recoverClaim);
 $("#submission-form").addEventListener("submit", createSubmission);
 $("#refresh-campaign").addEventListener("click", async () => {
   await selectCampaign(state.selectedCampaign);
-  await refreshClaim();
 });
 $("#refresh-submissions").addEventListener("click", loadSubmissions);
 document.querySelectorAll(".nav-link").forEach((button) => {
