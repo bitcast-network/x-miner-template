@@ -5,6 +5,10 @@ const state = {
   ecosystems: [],
   enabledEcosystems: new Set(),
   leaderboardEcosystem: null,
+  leaderboardLimit: 100,
+  leaderboardOffset: 0,
+  leaderboardTotalCount: 0,
+  leaderboardLoaded: false,
   selectedCampaign: null,
   selectedSubmissionId: null,
   claim: JSON.parse(localStorage.getItem("bx-reference-claim") || "null"),
@@ -48,12 +52,34 @@ function selectedQuery() {
 }
 
 function leaderboardQuery() {
-  const query = new URLSearchParams({ limit: "100" });
+  const query = new URLSearchParams({
+    limit: String(state.leaderboardLimit),
+    offset: String(state.leaderboardOffset),
+  });
   const ecosystems = state.leaderboardEcosystem
     ? [state.leaderboardEcosystem]
     : [...state.enabledEcosystems].sort();
   for (const ecosystem of ecosystems) query.append("ecosystem_id", ecosystem);
   return query.toString();
+}
+
+function currentPage() {
+  return window.location.hash === "#leaderboard" ? "leaderboard" : "campaigns";
+}
+
+function showPage(pageName, updateHash = false) {
+  const selected = pageName === "leaderboard" ? "leaderboard" : "campaigns";
+  $("#campaigns-page").classList.toggle("hidden", selected !== "campaigns");
+  $("#leaderboard-page").classList.toggle("hidden", selected !== "leaderboard");
+  document.querySelectorAll(".nav-link").forEach((button) => {
+    const active = button.dataset.page === selected;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+  if (updateHash) history.pushState(null, "", selected === "leaderboard" ? "#leaderboard" : "#campaigns");
+  document.title = selected === "leaderboard"
+    ? "Leaderboard · Bitcast X Reference Miner"
+    : "Bitcast X · Reference Miner";
 }
 
 function notice(element, text, type = "neutral") {
@@ -131,8 +157,11 @@ function renderEcosystems() {
       if (!state.enabledEcosystems.has(state.leaderboardEcosystem)) {
         state.leaderboardEcosystem = null;
       }
+      state.leaderboardOffset = 0;
+      state.leaderboardLoaded = false;
       renderLeaderboardFilters();
-      await Promise.all([loadCampaigns(), loadEcosystemLeaderboard()]);
+      await loadCampaigns();
+      if (currentPage() === "leaderboard") await loadEcosystemLeaderboard();
     });
     const span = document.createElement("span");
     span.textContent = ecosystem.name;
@@ -155,6 +184,7 @@ function renderLeaderboardFilters() {
     button.textContent = ecosystem.name;
     button.addEventListener("click", async () => {
       state.leaderboardEcosystem = ecosystem.ecosystem_id;
+      state.leaderboardOffset = 0;
       renderLeaderboardFilters();
       await loadEcosystemLeaderboard();
     });
@@ -644,14 +674,20 @@ async function loadCampaignTweets() {
 }
 
 async function loadEcosystemLeaderboard() {
+  renderTableMessage("#leaderboard-rows", "Loading leaderboard…");
+  $("#leaderboard-previous").disabled = true;
+  $("#leaderboard-next").disabled = true;
   try {
     const result = await request(`/api/leaderboard?${leaderboardQuery()}`);
     const items = result.accounts || [];
+    state.leaderboardTotalCount = Number(result.total_count || 0);
+    state.leaderboardLoaded = true;
     $("#leaderboard-updated").textContent = result.data_updated_at
       ? `Scores updated ${dateTime(result.data_updated_at)} · ${number(result.total_count)} creators`
       : `${number(result.total_count)} creators`;
     if (!items.length) {
       renderTableMessage("#leaderboard-rows", "No scored creators in the selected ecosystems.");
+      renderLeaderboardPagination();
       return;
     }
     $("#leaderboard-rows").replaceChildren(...items.map((item) => {
@@ -677,13 +713,29 @@ async function loadEcosystemLeaderboard() {
       );
       return row;
     }));
+    renderLeaderboardPagination();
   } catch (error) {
     $("#leaderboard-updated").textContent = "Leaderboard unavailable";
     renderTableMessage("#leaderboard-rows", error.message);
+    $("#leaderboard-page-status").textContent = "Unable to load page";
   }
 }
 
+function renderLeaderboardPagination() {
+  const total = state.leaderboardTotalCount;
+  const pageCount = Math.max(1, Math.ceil(total / state.leaderboardLimit));
+  const page = Math.floor(state.leaderboardOffset / state.leaderboardLimit) + 1;
+  const first = total ? state.leaderboardOffset + 1 : 0;
+  const last = Math.min(state.leaderboardOffset + state.leaderboardLimit, total);
+  $("#leaderboard-page-status").textContent = total
+    ? `Showing ${number(first)}–${number(last)} of ${number(total)} · Page ${number(page)} of ${number(pageCount)}`
+    : "No ranked creators";
+  $("#leaderboard-previous").disabled = state.leaderboardOffset === 0;
+  $("#leaderboard-next").disabled = state.leaderboardOffset + state.leaderboardLimit >= total;
+}
+
 async function boot() {
+  showPage(currentPage());
   $("#creator-x-id").value = localStorage.getItem("bx-reference-creator") || "";
   try {
     const [status, ecosystems] = await Promise.all([
@@ -695,7 +747,9 @@ async function boot() {
     state.enabledEcosystems = new Set(state.ecosystems.map((item) => item.ecosystem_id));
     renderEcosystems();
     renderLeaderboardFilters();
-    await Promise.all([loadEcosystemLeaderboard(), loadCampaigns(), loadSubmissions()]);
+    const loads = [loadCampaigns(), loadSubmissions()];
+    if (currentPage() === "leaderboard") loads.push(loadEcosystemLeaderboard());
+    await Promise.all(loads);
   } catch (error) {
     $("#node-badge").textContent = error.message;
     $("#node-badge").className = "status-badge error";
@@ -723,6 +777,37 @@ $("#refresh-campaign").addEventListener("click", async () => {
   await refreshClaim();
 });
 $("#refresh-submissions").addEventListener("click", loadSubmissions);
+document.querySelectorAll(".nav-link").forEach((button) => {
+  button.addEventListener("click", async () => {
+    showPage(button.dataset.page, true);
+    if (button.dataset.page === "leaderboard" && !state.leaderboardLoaded) {
+      await loadEcosystemLeaderboard();
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+});
+window.addEventListener("popstate", async () => {
+  showPage(currentPage());
+  if (currentPage() === "leaderboard" && !state.leaderboardLoaded) {
+    await loadEcosystemLeaderboard();
+  }
+});
+$("#leaderboard-page-size").addEventListener("change", async (event) => {
+  state.leaderboardLimit = Number(event.target.value);
+  state.leaderboardOffset = 0;
+  await loadEcosystemLeaderboard();
+});
+$("#leaderboard-previous").addEventListener("click", async () => {
+  state.leaderboardOffset = Math.max(0, state.leaderboardOffset - state.leaderboardLimit);
+  await loadEcosystemLeaderboard();
+  $("#leaderboard-page").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("#leaderboard-next").addEventListener("click", async () => {
+  if (state.leaderboardOffset + state.leaderboardLimit >= state.leaderboardTotalCount) return;
+  state.leaderboardOffset += state.leaderboardLimit;
+  await loadEcosystemLeaderboard();
+  $("#leaderboard-page").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 $("#close-submission-detail").addEventListener("click", () => {
   state.selectedSubmissionId = null;
   $("#submission-detail").classList.add("hidden");

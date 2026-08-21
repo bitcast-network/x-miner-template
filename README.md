@@ -9,7 +9,7 @@ The product can:
 - show miner registration and qualification;
 - discover only authorized protocol-v2 campaigns;
 - filter campaigns and results across one or many enabled ecosystems;
-- browse a combined account leaderboard and filter it to one enabled ecosystem;
+- browse every page of the combined account leaderboard and filter it to one enabled ecosystem;
 - show campaign briefs, timing, pools, statistics and capabilities;
 - check creator eligibility and rank evidence using immutable numeric X IDs;
 - create idempotent claims and wait for `safe_to_post`;

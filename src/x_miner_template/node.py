@@ -78,13 +78,19 @@ class MinerNodeClient:
         )
         return result
 
-    async def leaderboard(self, ecosystem_ids: list[str], limit: int = 100) -> dict[str, Any]:
+    async def leaderboard(
+        self,
+        ecosystem_ids: list[str],
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
         result: dict[str, Any] = await self.request(
             "GET",
             "/api/v1/leaderboard",
             params=[
                 *[("ecosystem_id", item) for item in ecosystem_ids],
                 ("limit", str(limit)),
+                ("offset", str(offset)),
             ],
         )
         return result
