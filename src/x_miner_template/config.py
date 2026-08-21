@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     node_url: str = "http://127.0.0.1:8095"
     node_token: SecretStr = Field(min_length=64)
     request_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    claim_timeout_seconds: float = Field(default=120, gt=0, le=300)
     web_username: str = Field(default="bitcast", min_length=1, max_length=64)
     web_password: SecretStr | None = Field(default=None, min_length=16)
     openrouter_api_key: SecretStr | None = Field(default=None, min_length=1)

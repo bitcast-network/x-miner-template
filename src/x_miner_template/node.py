@@ -24,6 +24,15 @@ class MinerNodeError(Exception):
         super().__init__(str(self.body))
 
 
+class MinerNodeTimeout(Exception):
+    """The configured miner node did not answer before the request deadline."""
+
+    def __init__(self, method: str, path: str) -> None:
+        self.method = method
+        self.path = path
+        super().__init__(f"Miner node timed out during {method} {path}")
+
+
 class MinerNodeClient:
     """Keep the node bearer credential on the product backend."""
 
@@ -45,15 +54,23 @@ class MinerNodeClient:
         params: list[tuple[str, str]] | None = None,
         json: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
+        request_timeout: float | None = None,
     ) -> Any:
         headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
-        response = await self._client.request(
-            method,
-            path,
-            params=tuple(params or ()),
-            json=json,
-            headers=headers,
-        )
+        request_options: dict[str, Any] = {}
+        if request_timeout is not None:
+            request_options["timeout"] = request_timeout
+        try:
+            response = await self._client.request(
+                method,
+                path,
+                params=tuple(params or ()),
+                json=json,
+                headers=headers,
+                **request_options,
+            )
+        except httpx.TimeoutException as error:
+            raise MinerNodeTimeout(method, path) from error
         if response.is_error:
             raise MinerNodeError(response)
         return response.json()

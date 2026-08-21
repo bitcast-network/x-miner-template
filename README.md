@@ -70,7 +70,8 @@ hotkey, SQLite protocol state, chain commitments and validator batch endpoint.
 | `X_MINER_NODE_URL` | Private URL of the miner node |
 | `X_MINER_NODE_TOKEN` | 64-character node application credential; server-side only |
 | `X_MINER_HOST` / `X_MINER_PORT` | Product listener, default `0.0.0.0:8080` |
-| `X_MINER_REQUEST_TIMEOUT_SECONDS` | Node request timeout |
+| `X_MINER_REQUEST_TIMEOUT_SECONDS` | Normal node request timeout, default 30 seconds |
+| `X_MINER_CLAIM_TIMEOUT_SECONDS` | Claim commitment timeout, default 120 seconds |
 | `X_MINER_OPENROUTER_API_KEY` | Optional server-side key enabling strict tweet draft prechecks |
 | `X_MINER_OPENROUTER_MODEL` | OpenRouter model, default `qwen/qwen3-32b:nitro` |
 | `X_MINER_OPENROUTER_TIMEOUT_SECONDS` | Timeout for each OpenRouter request, default 90 seconds |
@@ -91,6 +92,10 @@ The campaign's `prompt_version` is mandatory while precheck is enabled. If a cam
 newer prompt version that this template has not copied yet, the claim fails before any chain call and
 the creator is told that the template must be updated. The template never falls back to an older
 prompt version silently.
+
+Claim creation uses a longer deadline because it may wait for an on-chain batch to finalize. If that
+deadline is still exceeded, the product looks up the exact durable operation by its external ID and
+returns the recovered claim instead of reporting a generic server error or creating a duplicate.
 
 ## Development
 
