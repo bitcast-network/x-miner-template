@@ -163,6 +163,20 @@ def test_claims_are_automatically_recovered_when_a_campaign_is_opened() -> None:
     assert "state.claims = result.items || []" in javascript.text
 
 
+def test_complete_result_renders_the_full_score_calculation() -> None:
+    web = TestClient(create_app(settings(), Node))
+
+    javascript = web.get("/app.js").text
+
+    assert 'value("author_influence")' in javascript
+    assert 'value("performance_bonus_pct")' in javascript
+    assert 'value("performance_bonus_breakdown")' in javascript
+    assert 'value("featured_tweet_bonus")' in javascript
+    assert 'resultGroup("Score calculation", calculation.entries, calculation.detail)' in javascript
+    assert "engagement_contributions: engagements" in javascript
+    assert "components: performanceComponents" in javascript
+
+
 def test_optional_basic_auth_protects_product_but_not_health() -> None:
     web = TestClient(create_app(settings(password=DEMO_PASSWORD), Node))
 

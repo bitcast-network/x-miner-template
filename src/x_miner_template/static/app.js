@@ -625,6 +625,63 @@ function resultGroup(title, entries, jsonValue = null) {
   return group;
 }
 
+function scoreCalculation(item, evaluation) {
+  const value = (field) => evaluation[field] ?? item[field] ?? null;
+  const authorInfluence = value("author_influence");
+  const baselineScore = value("baseline_score");
+  const finalScore = value("score");
+  const performanceBonusPct = value("performance_bonus_pct");
+  const performanceBreakdown = value("performance_bonus_breakdown") || {};
+  const featuredBonus = value("featured_tweet_bonus");
+  const rawEngagements = value("score_breakdown") || [];
+  const authorNumber = Number(authorInfluence);
+  const baselineNumber = Number(baselineScore);
+  const baselineMultiplier = Number.isFinite(authorNumber)
+    && authorNumber !== 0
+    && Number.isFinite(baselineNumber)
+    ? baselineNumber / authorNumber
+    : null;
+  const engagements = rawEngagements.map((entry) => ({
+    username: entry.u ?? entry.username ?? null,
+    type: entry.t === "rt" ? "retweet" : entry.t === "qt" ? "quote" : entry.t ?? entry.engagement_type ?? null,
+    influence: entry.i ?? entry.influence_score ?? null,
+    scale_factor: entry.s ?? entry.scale_factor ?? null,
+    contribution: entry.c ?? entry.weighted_contribution ?? null,
+  }));
+  const performanceComponents = Object.entries(performanceBreakdown).map(([metric, bonus]) => ({
+    metric: metric.replaceAll("_", " "),
+    bonus_pct: bonus,
+  }));
+  const baselineFormula = baselineMultiplier === null
+    ? null
+    : `${display(authorInfluence)} × ${display(baselineMultiplier)} = ${display(baselineScore)}`;
+
+  return {
+    entries: [
+      ["Author influence", authorInfluence],
+      ["Baseline calculation", baselineFormula],
+      ["Engagement contributions", engagements.length],
+      ["Performance bonus", performanceBonusPct === null ? null : `${performanceBonusPct}%`],
+      ["Featured bonus applied", featuredBonus],
+      ["Final score", finalScore],
+    ],
+    detail: {
+      baseline: {
+        author_influence: authorInfluence,
+        multiplier: baselineMultiplier,
+        score: baselineScore,
+      },
+      engagement_contributions: engagements,
+      performance_bonus: {
+        total_pct: performanceBonusPct,
+        components: performanceComponents,
+      },
+      featured_tweet_bonus: featuredBonus,
+      final_score: finalScore,
+    },
+  };
+}
+
 function renderSubmissionDetail(item) {
   state.selectedSubmissionId = item.submission_id;
   $("#submission-detail-title").textContent = `Submission ${short(item.submission_id)}`;
@@ -637,6 +694,7 @@ function renderSubmissionDetail(item) {
   const reward = item.reward_recommendation || {};
   const tweet = item.tweet || {};
   const metrics = item.metrics || {};
+  const calculation = scoreCalculation(item, evaluation);
   $("#submission-detail-content").replaceChildren(
     resultGroup("Receipt", [
       ["Submission ID", item.submission_id], ["External ID", item.external_id],
@@ -686,7 +744,7 @@ function renderSubmissionDetail(item) {
       ["Replies", metrics.replies ?? item.replies], ["Quotes", metrics.quotes ?? item.quotes],
       ["Bookmarks", metrics.bookmarks ?? item.bookmarks], ["Captured", dateTime(metrics.captured_at)],
     ]),
-    resultGroup("Score breakdown", [], evaluation.score_breakdown || item.score_breakdown || []),
+    resultGroup("Score calculation", calculation.entries, calculation.detail),
   );
   $("#submission-detail").classList.remove("hidden");
   $("#submission-detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
