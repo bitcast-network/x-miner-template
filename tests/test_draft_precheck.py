@@ -1,6 +1,7 @@
 """Offline coverage for the replicated strict OpenRouter evaluator."""
 
 import asyncio
+import hashlib
 import json
 
 import httpx
@@ -72,12 +73,48 @@ async def test_three_yes_verdicts_pass() -> None:
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     evaluator = OpenRouterDraftPrechecker(api_key="secret", client=client)
     try:
-        result = await evaluator.evaluate(campaign(prompt_version=3), "Informed topic analysis")
+        result = await evaluator.evaluate(campaign(prompt_version=5), "Informed product review")
     finally:
         await client.aclose()
 
     assert result.meets_brief is True
     assert len(result.checks) == 3
+
+
+def test_prompt_versions_match_the_published_bitcast_x_contract() -> None:
+    from x_miner_template.draft_prompts import generate_brief_evaluation_prompt
+
+    expected = {
+        1: "a0f1bd9de1e43a9bb1a2cfc91b9e78cc82304298b87bb9d4f80c53892e526e57",
+        2: "f2d2d4c2cf16821be3decbf5ae2478ec5ff821abfb7cc289b96e106066efbcaf",
+        5: "4a079a65ae1e2fdd5bddf3f42d334813d05056d749c3ae04178ecd414f4c5394",
+    }
+    brief = {"brief": "Talk about Bitcast and tag @bitcast_network"}
+
+    actual = {
+        version: hashlib.sha256(
+            generate_brief_evaluation_prompt(
+                brief,
+                "A thoughtful Bitcast post",
+                version,
+            ).encode()
+        ).hexdigest()
+        for version in expected
+    }
+
+    assert actual == expected
+
+
+@pytest.mark.parametrize("version", [3, 4, 6])
+def test_retired_or_unknown_prompt_versions_are_rejected(version: int) -> None:
+    from x_miner_template.draft_prompts import generate_brief_evaluation_prompt
+
+    with pytest.raises(ValueError, match=r"Available versions: \[1, 2, 5\]"):
+        generate_brief_evaluation_prompt(
+            {"brief": "Talk about Bitcast"},
+            "A thoughtful Bitcast post",
+            version,
+        )
 
 
 async def test_all_three_checks_run_concurrently_and_keep_check_order() -> None:
