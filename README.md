@@ -85,8 +85,9 @@ configured, claims continue normally and the creator sees a light warning that d
 disabled. OpenRouter outages are reported as retryable errors and never mislabelled as a brief
 failure.
 
-The frozen prompt copy currently tracks `bitcast-x` commit
-`7411d34208a86d55f6fb72f2de6b3a6953f1a089`.
+The frozen prompt copy and application API contract require `bitcast-x >= 2.1.0`
+(application API v1; supported prompt versions 1, 2 and 5). Golden prompt
+digests and route tests fail if either copy drifts.
 
 The campaign's `prompt_version` is mandatory while precheck is enabled. If a campaign references a
 newer prompt version that this template has not copied yet, the claim fails before any chain call and
