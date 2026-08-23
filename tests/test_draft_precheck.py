@@ -8,9 +8,11 @@ import httpx
 import pytest
 
 from x_miner_template.draft_precheck import (
+    DraftEvaluation,
     DraftPrecheckUnavailableError,
     OpenRouterDraftPrechecker,
     UnsupportedPromptVersionError,
+    parse_draft_evaluation,
 )
 
 
@@ -73,7 +75,7 @@ async def test_three_yes_verdicts_pass() -> None:
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     evaluator = OpenRouterDraftPrechecker(api_key="secret", client=client)
     try:
-        result = await evaluator.evaluate(campaign(prompt_version=5), "Informed product review")
+        result = await evaluator.evaluate(campaign(prompt_version=6), "Informed topic analysis")
     finally:
         await client.aclose()
 
@@ -85,9 +87,10 @@ def test_prompt_versions_match_the_published_bitcast_x_contract() -> None:
     from x_miner_template.draft_prompts import generate_brief_evaluation_prompt
 
     expected = {
-        1: "a0f1bd9de1e43a9bb1a2cfc91b9e78cc82304298b87bb9d4f80c53892e526e57",
+        1: "193ca82cc622774a2cb142bb724378b33fbdbf8ec113cc16778a1153297849a0",
         2: "f2d2d4c2cf16821be3decbf5ae2478ec5ff821abfb7cc289b96e106066efbcaf",
         5: "4a079a65ae1e2fdd5bddf3f42d334813d05056d749c3ae04178ecd414f4c5394",
+        6: "a0f1bd9de1e43a9bb1a2cfc91b9e78cc82304298b87bb9d4f80c53892e526e57",
     }
     brief = {"brief": "Talk about Bitcast and tag @bitcast_network"}
 
@@ -105,11 +108,11 @@ def test_prompt_versions_match_the_published_bitcast_x_contract() -> None:
     assert actual == expected
 
 
-@pytest.mark.parametrize("version", [3, 4, 6])
+@pytest.mark.parametrize("version", [3, 4, 7])
 def test_retired_or_unknown_prompt_versions_are_rejected(version: int) -> None:
     from x_miner_template.draft_prompts import generate_brief_evaluation_prompt
 
-    with pytest.raises(ValueError, match=r"Available versions: \[1, 2, 5\]"):
+    with pytest.raises(ValueError, match=r"Available versions: \[1, 2, 5, 6\]"):
         generate_brief_evaluation_prompt(
             {"brief": "Talk about Bitcast"},
             "A thoughtful Bitcast post",
@@ -151,13 +154,15 @@ async def test_every_x_brief_field_is_available_to_prompt_generators(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prompt_inputs: list[dict[str, object]] = []
+    tweet_inputs: list[str] = []
 
     def generate_prompt(
         brief: dict[str, object],
-        _tweet: str,
+        tweet: str,
         _version: int,
     ) -> str:
         prompt_inputs.append(dict(brief))
+        tweet_inputs.append(tweet)
         return "prompt"
 
     monkeypatch.setattr(
@@ -172,18 +177,21 @@ async def test_every_x_brief_field_is_available_to_prompt_generators(
         )
 
     source = campaign()
+    source["brief"] = "Explain Bitcast and tag @BITCAST_NETWORK."
     source["x_brief"] = {
         "id_brief": 42,
         "project": "Bitcast",
         "project_context": "Full project context",
         "product_context": "Full product context",
+        "tag": "@Bitcast_Network",
+        "nested": {"mentions": ["@BITCAST_NETWORK"]},
         "brief": "stale nested brief",
         "prompt_version": 1,
     }
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     evaluator = OpenRouterDraftPrechecker(api_key="secret", client=client)
     try:
-        await evaluator.evaluate(source, "Draft")
+        await evaluator.evaluate(source, "Draft tagging @Bitcast_Network")
     finally:
         await client.aclose()
 
@@ -192,8 +200,17 @@ async def test_every_x_brief_field_is_available_to_prompt_generators(
     assert all(item["project_context"] == "Full project context" for item in prompt_inputs)
     assert all(item["product_context"] == "Full product context" for item in prompt_inputs)
     assert all(item["id"] == "campaign-1" for item in prompt_inputs)
-    assert all(item["brief"] == "Explain why the product matters." for item in prompt_inputs)
+    assert all(
+        item["brief"] == "Explain Bitcast and tag @bitcast_network." for item in prompt_inputs
+    )
+    assert all(item["tag"] == "@bitcast_network" for item in prompt_inputs)
+    assert all(item["nested"] == {"mentions": ["@bitcast_network"]} for item in prompt_inputs)
     assert all(item["prompt_version"] == 2 for item in prompt_inputs)
+    assert tweet_inputs == [
+        "Draft tagging @bitcast_network 1",
+        "Draft tagging @bitcast_network 2",
+        "Draft tagging @bitcast_network 3",
+    ]
 
 
 async def test_provider_failure_is_unavailable_not_content_rejection() -> None:
@@ -223,9 +240,24 @@ async def test_missing_or_unknown_prompt_version_fails_before_provider_call() ->
         missing.pop("prompt_version")
         with pytest.raises(UnsupportedPromptVersionError, match="version is missing"):
             await evaluator.evaluate(missing, "Draft")
-        with pytest.raises(UnsupportedPromptVersionError, match="unsupported prompt version 6"):
-            await evaluator.evaluate(campaign(prompt_version=6), "Draft")
+        with pytest.raises(UnsupportedPromptVersionError, match="unsupported prompt version 7"):
+            await evaluator.evaluate(campaign(prompt_version=7), "Draft")
     finally:
         await client.aclose()
 
     assert requests == []
+
+
+def test_v6_instruction_breakdown_is_preserved() -> None:
+    result = parse_draft_evaluation(
+        '## Instruction-by-Instruction\n- Instruction 1: Met — "tag @bitcast_network"\n'
+        "## Verdict\nYES\n## Summary\nEvery instruction was met.",
+        check=1,
+    )
+
+    assert result == DraftEvaluation(
+        meets_brief=True,
+        reasoning="Every instruction was met.",
+        detailed_breakdown='- Instruction 1: Met — "tag @bitcast_network"',
+        check=1,
+    )
