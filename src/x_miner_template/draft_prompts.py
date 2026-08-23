@@ -12,7 +12,7 @@ How to add a new prompt version:
 3. Update tests to validate the new version
 4. Briefs can then specify "prompt_version": X to use the new format
 
-Currently supported versions: v1, v2, v3, v4, v5 (default: v1)
+Currently supported versions: v1, v2, v5 (default: v1)
 """
 
 # ruff: noqa: E501 -- line breaks would change frozen prompt cache keys.
@@ -24,50 +24,42 @@ PromptGenerator = Callable[[Mapping[str, Any], str], str]
 
 
 def generate_brief_evaluation_prompt_v1(brief: Mapping[str, Any], tweet: str) -> str:
-    """
-    Generate a detailed evaluation prompt that requires evidence for each brief item.
+    """Evaluate whether a post follows the instructions in a campaign brief."""
 
-    Features:
-    • Auto-numbers brief items for systematic evaluation
-    • Requires 5-15-word quote for every Met claim
-    • Demands exact `start` time (seconds) from transcript as evidence
-    • Uncertain or fabricated timestamps → Not Met
-    • Special handling for description-only items
-    """
     return (
-        "///// SPONSOR BRIEF /////\n"
+        "///// CAMPAIGN BRIEF /////\n"
         f"{brief['brief']}\n\n"
-        "///// TWEET /////\n"
+        "///// POST /////\n"
         f"{tweet}\n\n"
         "///// YOUR TASK /////\n"
-        "You are the sponsor's review agent. Decide—objectively—whether this tweet **fully** satisfies the brief.\n"
-        "**Important Context**\n"
-        "• The brief requirements are **minimum requirements** - creators are may choose to go deeper into the topic area - although this is not mandatory\n"
-        "Additional requirement: The tweet must not be negative or critical of the sponsor.\n"
-        "**Step-by-step instructions**\n\n"
-        "1. **Auto-number** each requirement in the brief (1, 2, 3 …) in the order it appears.\n"
-        "2. For every numbered requirement:\n"
-        "   • Search the tweet.\n"
-        "   • If you find evidence, mark **Met** and provide:\n"
-        "       – a 3-15-word quote extracted verbatim from the tweet\n"
-        "   • If no clear evidence or you are **uncertain**, mark **Not Met**.\n"
-        "3. **If any item fails → Verdiction = NO.**\n\n"
+        "You are a campaign compliance reviewer. Decide whether this post follows all instructions in the brief.\n\n"
+        "**Evaluation principles**\n"
+        "• Treat the brief as the complete source of requirements.\n"
+        "• Do not add requirements that are not stated in the brief.\n"
+        "• Treat every explicit instruction in the brief as required.\n"
+        "• Evaluate only what is present in the post. Do not infer or invent evidence.\n\n"
+        "**Step-by-step instructions**\n"
+        "1. Identify each instruction in the brief.\n"
+        "2. For every instruction:\n"
+        "   • Mark **Met** when the post clearly follows it and provide a short quote as evidence.\n"
+        "   • Mark **Not Met** when the post does not follow it or the evidence is absent or uncertain.\n"
+        "3. If any instruction is Not Met, return **NO**. Otherwise, return **YES**.\n\n"
         "**Important accuracy rules**\n"
-        "• Do **not** invent timestamps. If a timestamp is uncertain, mark the item Not Met.\n"
-        "• Fabricated quotes automatically fail that item.\n"
+        "• Quotes must be copied from the post.\n"
+        "• Fabricated evidence automatically fails that instruction.\n"
         "• When in doubt, choose **NO**.\n"
         "**Response format (exactly):**\n"
         "```\n"
-        "## Requirement-by-Requirement\n"
-        '- Req 1: [requirement text] — Met / Not Met — "quoted evidence" (start-sec or range)\n'
-        "- Req 2: ...\n"
+        "## Instruction-by-Instruction\n"
+        '- Instruction 1: [instruction] — Met / Not Met — "quoted evidence"\n'
+        "- Instruction 2: ...\n"
         "...\n"
         "## Verdict\n"
         "YES or NO\n"
         "## Summary\n"
-        "Brief 1 sentence explanation of why the content did or did not meet the brief requirements.\n"
+        "One sentence explaining why the post did or did not follow the brief.\n"
         "```\n"
-        "Be concise and remember: fabricated evidence = Not Met."
+        "Be concise."
     )
 
 
@@ -268,8 +260,6 @@ def generate_brief_evaluation_prompt_v5(brief: Mapping[str, Any], tweet: str) ->
 PROMPT_GENERATORS: dict[int, PromptGenerator] = {
     1: generate_brief_evaluation_prompt_v1,
     2: generate_brief_evaluation_prompt_v2,
-    3: generate_brief_evaluation_prompt_v3,
-    4: generate_brief_evaluation_prompt_v4,
     5: generate_brief_evaluation_prompt_v5,
 }
 
