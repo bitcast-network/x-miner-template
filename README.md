@@ -91,6 +91,8 @@ cannot reject a claim. The original draft is still forwarded to the miner node b
 
 The frozen prompt copy currently tracks `bitcast-x` commit
 `842d7ac3e3023f2b6773086d2374f0c1a9cdc68f` (PR #113).
+The application API contract requires `bitcast-x >= 2.1.0`; supported prompt versions are 1, 2, 5
+and 6. Golden prompt digests and route tests fail if either copied contract drifts.
 
 The campaign's `prompt_version` is mandatory while precheck is enabled. If a campaign references a
 newer prompt version that this template has not copied yet, the claim fails before any chain call and

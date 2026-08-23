@@ -25,14 +25,10 @@ PromptGenerator = Callable[[Mapping[str, Any], str], str]
 
 def generate_brief_evaluation_prompt_v1(brief: Mapping[str, Any], tweet: str) -> str:
     """
-    Generate a detailed evaluation prompt that requires evidence for each brief item.
+    Generate the original sponsor-oriented evaluation prompt.
 
-    Features:
-    • Auto-numbers brief items for systematic evaluation
-    • Requires 5-15-word quote for every Met claim
-    • Demands exact `start` time (seconds) from transcript as evidence
-    • Uncertain or fabricated timestamps → Not Met
-    • Special handling for description-only items
+    Version 1 is frozen because its exact bytes are an LLM-cache key and define
+    the evaluation behavior selected by existing campaigns.
     """
     return (
         "///// SPONSOR BRIEF /////\n"
