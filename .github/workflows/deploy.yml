@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: read
-
 env:
   AWS_REGION: ${{ vars.PRD_AWS_REGION }}
   AWS_DEFAULT_REGION: ${{ vars.PRD_AWS_REGION }}
@@ -21,71 +20,34 @@ env:
 
 jobs:
   build:
+    name: Build without AWS credentials
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
-      id-token: write
+    outputs:
+      archive-sha256: ${{ steps.release-archive.outputs.sha256 }}
+      artifact-name: ${{ steps.release-archive.outputs.name }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Validate deployment configuration
-        env:
-          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      - name: Build the reference image
         run: |
-          missing=()
-          for name in AWS_REGION ECR_REPOSITORY ECS_CLUSTER ECS_SERVICE DEPLOY_ROLE_ARN; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing required repository variables: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
-      - name: Assume deploy role with GitHub OIDC
-        env:
-          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          docker build -t release-image:tested .
+      - name: Export the built image and its checksum
+        id: release-archive
         run: |
-          oidc_token=$(curl --fail --silent --show-error \
-            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
-          read -r access_key secret_key session_token <<< "$(aws sts assume-role-with-web-identity \
-            --role-arn "$DEPLOY_ROLE_ARN" \
-            --role-session-name "x-miner-template-${GITHUB_RUN_ID}" \
-            --web-identity-token "$oidc_token" \
-            --duration-seconds 3600 \
-            --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
-            --output text)"
-          echo "::add-mask::$access_key"
-          echo "::add-mask::$secret_key"
-          echo "::add-mask::$session_token"
-          {
-            echo "AWS_ACCESS_KEY_ID=$access_key"
-            echo "AWS_SECRET_ACCESS_KEY=$secret_key"
-            echo "AWS_SESSION_TOKEN=$session_token"
-          } >> "$GITHUB_ENV"
-      - name: Log in to Amazon ECR
-        run: |
-          account_id=$(aws sts get-caller-identity --query Account --output text)
-          registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
-          echo "ECR_REGISTRY=$registry" >> "$GITHUB_ENV"
-      - name: Build and push commit-pinned image
-        run: |
-          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" .
-          set +e
-          push_output=$(docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" 2>&1)
-          push_status=$?
-          set -e
-          printf '%s\n' "$push_output"
-          if [ "$push_status" -eq 0 ]; then
-            exit 0
-          fi
-          if grep -q 'already exists.*cannot be overwritten' <<<"$push_output"; then
-            echo "Commit-pinned image already exists; reusing the immutable image"
-            exit 0
-          fi
-          exit "$push_status"
-
+          set -euo pipefail
+          docker save release-image:tested -o release-image.tar
+          echo "sha256=$(sha256sum release-image.tar | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          printf '### Built release image\n\nSource: `%s`\n\nArchive SHA-256: `%s`\n' "$GITHUB_SHA" "$(sha256sum release-image.tar | cut -d ' ' -f 1)" >> "$GITHUB_STEP_SUMMARY"
+          echo "name=release-image-build-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.release-archive.outputs.name }}
+          path: release-image.tar
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
   deploy:
     needs: build
     if: ${{ inputs.deploy }}
@@ -97,7 +59,7 @@ jobs:
     steps:
       - name: Validate deployment configuration
         env:
-          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          DEPLOY_ROLE_ARN: ${{ vars.AWS_PRODUCTION_DEPLOY_ROLE_ARN }}
         run: |
           missing=()
           for name in AWS_REGION ECR_REPOSITORY ECS_CLUSTER ECS_SERVICE DEPLOY_ROLE_ARN; do
@@ -109,42 +71,49 @@ jobs:
             printf 'Missing required repository variables: %s\n' "${missing[*]}" >&2
             exit 1
           fi
-      - name: Assume deploy role with GitHub OIDC
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.build.outputs.artifact-name }}
+      - name: Verify and load the built image
         env:
-          DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          EXPECTED_SHA256: ${{ needs.build.outputs.archive-sha256 }}
         run: |
-          oidc_token=$(curl --fail --silent --show-error \
-            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
-          read -r access_key secret_key session_token <<< "$(aws sts assume-role-with-web-identity \
-            --role-arn "$DEPLOY_ROLE_ARN" \
-            --role-session-name "x-miner-template-${GITHUB_RUN_ID}" \
-            --web-identity-token "$oidc_token" \
-            --duration-seconds 3600 \
-            --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
-            --output text)"
-          echo "::add-mask::$access_key"
-          echo "::add-mask::$secret_key"
-          echo "::add-mask::$session_token"
-          {
-            echo "AWS_ACCESS_KEY_ID=$access_key"
-            echo "AWS_SECRET_ACCESS_KEY=$secret_key"
-            echo "AWS_SESSION_TOKEN=$session_token"
-          } >> "$GITHUB_ENV"
-      - name: Register and deploy immutable task revision
+          set -euo pipefail
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          printf '%s  release-image.tar\n' "$EXPECTED_SHA256" | sha256sum --check --strict
+          docker load -i release-image.tar
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.AWS_PRODUCTION_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076
+        id: ecr-login
+      - name: Publish the approved image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
         run: |
-          account_id=$(aws sts get-caller-identity --query Account --output text)
-          registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          aws ecs describe-task-definition --task-definition "$ECS_SERVICE" \
-            --query taskDefinition --output json > task-def.json
+          set -euo pipefail
+          image="$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker tag release-image:tested "$image"
+          docker push "$image"
+          digest=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --query 'imageDetails[0].imageDigest' --output text)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          echo "RELEASE_IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY@$digest" >> "$GITHUB_ENV"
+      - name: Register and deploy the approved task revision
+        run: |
+          set -euo pipefail
+          current=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].taskDefinition' --output text)
+          [[ "$current" == arn:aws:ecs:*:task-definition/*:* ]] || exit 1
+          aws ecs describe-task-definition --task-definition "$current" --query taskDefinition --output json > task-def.json
           jq 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' \
             task-def.json > clean.json
-          jq --arg image "$registry/$ECR_REPOSITORY:$GITHUB_SHA" \
-            '.containerDefinitions[0].image = $image' clean.json > new.json
-          arn=$(aws ecs register-task-definition --cli-input-json file://new.json \
-            --query taskDefinition.taskDefinitionArn --output text)
+          jq --arg image "$RELEASE_IMAGE" '.containerDefinitions[0].image = $image' clean.json > new.json
+          arn=$(aws ecs register-task-definition --cli-input-json file://new.json --query taskDefinition.taskDefinitionArn --output text)
           aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
             --desired-count 1 --task-definition "$arn" --force-new-deployment
           aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
-          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
-            --query 'services[0].{taskDefinition:taskDefinition,running:runningCount,desired:desiredCount}'
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
